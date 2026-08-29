@@ -1,5 +1,6 @@
 node_modules/
 dist/
+.backend-dist/
 release/
 *.tsbuildinfo
 .env

@@ -232,11 +232,10 @@ export async function requestVisionOcr(options: {
   if (apiKeys.length === 0) throw new Error('请先填写硅基流动 API Key')
   var model = options.model || DEFAULT_OCR_MODEL
   var dataUrl = await compressImage(options.dataUrl)
-  var slices = await splitImage(dataUrl, apiKeys.length)
   var created = await fetch('/ocr-run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ slices, apiKeys, model }),
+    body: JSON.stringify({ dataUrl, apiKeys, model }),
   })
   if (!created.ok) throw new Error(await created.text())
   var jobInfo = await created.json()
