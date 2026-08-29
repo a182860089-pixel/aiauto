@@ -1,0 +1,17 @@
+{
+  "name": "aiauto-exe",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "electron:dev": "npm run build && electron electron/main.cjs",
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "test": "node --test scripts/templateMapping.test.cjs"
+  },
+  "dependencies": { "exceljs": "^4.4.0", "react": "^19.1.1", "react-dom": "^19.1.1" },
+  "devDependencies": { "@types/react": "^19.1.10", "@types/react-dom": "^19.1.7", "@vitejs/plugin-react": "^5.0.0", "electron": "^43.2.0", "electron-builder": "^26.15.3", "typescript": "^5.9.2", "vite": "^7.1.2" },
+  "build": { "appId": "cn.aiauto.case-uploader", "productName": "病例自动传", "directories": { "output": "release" }, "files": ["dist/**/*", "electron/**/*", "templates/**/*"], "win": { "target": "nsis", "artifactName": "${productName}-${version}-Setup.${ext}" } }
+}

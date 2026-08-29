@@ -1,0 +1,49 @@
+{
+  "name": "aiauto-mvp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "dev:ocr": "vite --open /ocr.html",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "npm run test:mapping && npm run test:excel && npm run test:classifier",
+    "test:mapping": "node --test scripts/templateMapping.test.cjs",
+    "test:excel": "node --test scripts/excelExporter.test.cjs",
+    "test:classifier": "node --test scripts/smartClassifier.test.cjs",
+    "electron:dev": "npm run build && electron electron/main.cjs",
+    "ocr:excel": "electron scripts/ocr-to-excel.cjs",
+    "dist:win": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.2"
+  },
+  "build": {
+    "appId": "cn.aiauto.case-uploader",
+    "productName": "病例自动传",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "${productName}-${version}-Setup.${ext}"
+    }
+  }
+}
