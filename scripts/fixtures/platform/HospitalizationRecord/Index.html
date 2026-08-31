@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>住院病种记录</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; }
+    button { padding: 8px 16px; }
+    iframe { width: 100%; height: 520px; margin-top: 16px; border: 1px solid #cbd5e1; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; }
+    .search { display: flex; gap: 12px; align-items: end; margin-bottom: 12px; }
+    .search label { display: block; font-size: 12px; }
+    #submitted { margin-top: 12px; color: #166534; }
+  </style>
+</head>
+<body>
+  <h1>住院病种记录</h1>
+  <div class="search">
+    <div>
+      <label>病人姓名</label>
+      <input id="txtPatientName" name="PatientName" placeholder="请输入" />
+    </div>
+    <div>
+      <label>开始时间</label>
+      <input id="StartDate" value="2026-07-08" />
+    </div>
+    <div>
+      <label>结束时间</label>
+      <input id="EndDate" value="2026-08-31" />
+    </div>
+    <button type="button" id="btnSearch">确定</button>
+  </div>
+  <button type="button" id="add-btn">添加</button>
+  <button type="button" id="refresh-btn">刷新</button>
+  <table>
+    <thead>
+      <tr>
+        <th>住院日期</th>
+        <th>科室</th>
+        <th>病人姓名</th>
+        <th>住院号</th>
+        <th>学生名</th>
+      </tr>
+    </thead>
+    <tbody id="record-body"></tbody>
+  </table>
+  <div id="submitted">已提交 0 条</div>
+  <script>
+    window.__submittedRecords = []
+    window.__existingRecords = [
+      { CreationTime: '2026-08-03', Department: '康复科2', PatientName: '赵敏', HospitalNo: '381204', StudentName: '张桂福' },
+    ]
+    function allRecords() {
+      return window.__existingRecords.concat(window.__submittedRecords)
+    }
+    function syncTopRecords() {
+      if (window.top && window.top !== window) window.top.__submittedRecords = window.__submittedRecords
+    }
+    function renderTable() {
+      var name = String(document.getElementById('txtPatientName').value || '').trim()
+      var rows = allRecords().filter((record) => !name || record.PatientName === name)
+      document.getElementById('record-body').innerHTML = rows.map((record) => (
+        '<tr><td>' + (record.CreationTime || '') + '</td><td>' + (record.Department || '') + '</td><td>' + (record.PatientName || '') + '</td><td>' + (record.HospitalNo || '') + '</td><td>' + (record.StudentName || '') + '</td></tr>'
+      )).join('')
+      document.getElementById('submitted').textContent = '已提交 ' + window.__submittedRecords.length + ' 条'
+    }
+    function search() {
+      renderTable()
+    }
+    window.search = search
+    document.getElementById('btnSearch').addEventListener('click', search)
+    document.getElementById('refresh-btn').addEventListener('click', function () {
+      document.getElementById('txtPatientName').value = ''
+      renderTable()
+    })
+    document.getElementById('add-btn').addEventListener('click', () => {
+      if (document.querySelector('iframe[src*="/HospitalizationRecord/Create"]')) return
+      var frame = document.createElement('iframe')
+      frame.src = '/HospitalizationRecord/Create.html'
+      document.body.appendChild(frame)
+    })
+    window.addEventListener('message', (event) => {
+      if (!event.data || event.data.type !== 'hospitalization-submitted') return
+      window.__submittedRecords.push(event.data.record)
+      document.querySelectorAll('iframe[src*="/HospitalizationRecord/Create"]').forEach((frame) => frame.remove())
+      syncTopRecords()
+      renderTable()
+    })
+    renderTable()
+  </script>
+</body>
+</html>

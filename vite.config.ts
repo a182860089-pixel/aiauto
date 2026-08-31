@@ -29,7 +29,7 @@ export default defineConfig({
   base: './',
   plugins: [react(), ocrDebugPlugin()],
   server: {
-    open: '/ocr.html',
+    open: '/',
     proxy: {
       '/siliconflow': {
         target: 'https://api.siliconflow.cn',

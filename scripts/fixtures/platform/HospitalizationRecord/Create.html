@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>住院病种记录详情</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; }
+    .layui-form-item { margin-bottom: 12px; }
+    label { display: block; margin-bottom: 4px; }
+    input, textarea { width: 100%; padding: 6px; }
+    button { margin-right: 8px; padding: 8px 16px; }
+  </style>
+</head>
+<body>
+  <h2>住院病种记录详情</h2>
+  <form id="create-form">
+    <div class="layui-form-item">
+      <label>病人姓名</label>
+      <input name="PatientName" placeholder="病人姓名" />
+    </div>
+    <div class="layui-form-item">
+      <label>住院号</label>
+      <input name="HospitalNo" placeholder="住院号" />
+    </div>
+    <div class="layui-form-item">
+      <label>中医诊断</label>
+      <input name="Diagnosis" placeholder="中医诊断" />
+    </div>
+    <div class="layui-form-item">
+      <label>西医诊断</label>
+      <input name="DiagnosisWestern" placeholder="西医诊断" />
+    </div>
+    <div class="layui-form-item">
+      <label>住院日期</label>
+      <input name="CreationTime" placeholder="住院日期" />
+    </div>
+    <div class="layui-form-item">
+      <label>备注</label>
+      <textarea name="Remarks" placeholder="备注"></textarea>
+    </div>
+    <button type="button" id="cancel-btn">取消</button>
+    <button type="submit" id="ok-btn">确定</button>
+  </form>
+  <script>
+    document.getElementById('create-form').addEventListener('submit', (event) => {
+      event.preventDefault()
+      var form = event.target
+      var record = {
+        PatientName: form.PatientName.value,
+        HospitalNo: form.HospitalNo.value,
+        Diagnosis: form.Diagnosis.value,
+        DiagnosisWestern: form.DiagnosisWestern.value,
+        CreationTime: form.CreationTime.value,
+        Remarks: form.Remarks.value,
+      }
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'hospitalization-submitted', record }, '*')
+      }
+    })
+  </script>
+</body>
+</html>

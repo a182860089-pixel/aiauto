@@ -12,6 +12,7 @@ import {
   type UploadedImageItem,
 } from './ocrBrowser'
 import { exportClassifiedRowsToExcel } from './ocrExcel'
+import { describeSkippedInpatientRows, selectInpatientFillRecords } from './platformFields'
 import { mergeDepartmentOptions, rememberDepartment } from './templateMapping'
 
 var STORAGE_KEY = 'ocr-web-api-key'
@@ -28,7 +29,13 @@ function readFileAsDataUrl(file: File) {
   })
 }
 
-export default function OcrWebApp() {
+type OcrWebAppProps = {
+  embedded?: boolean
+  onRowsChange?: (rows: ClassifiedPatientRow[]) => void
+  onGoToPlatform?: () => void
+}
+
+export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: OcrWebAppProps = {}) {
   // 基础配置与持久化
   var [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY) || '')
   var [ocrModel, setOcrModel] = useState(() => localStorage.getItem(STORAGE_MODEL) || DEFAULT_OCR_MODEL)
@@ -36,9 +43,23 @@ export default function OcrWebApp() {
   var [customDepartments, setCustomDepartments] = useState<string[]>([])
   var [templateName, setTemplateName] = useState('使用标准 16 列五类合并格式')
   var [templateDataUrl, setTemplateDataUrl] = useState('')
+  var [desktopKeyCount, setDesktopKeyCount] = useState(0)
+  var [loginName, setLoginName] = useState('')
+  var [loginPassword, setLoginPassword] = useState('')
+  var [browserApiKey, setBrowserApiKey] = useState('')
+  var [browserBaseUrl, setBrowserBaseUrl] = useState('https://api.aigo0.com')
+  var [browserModel, setBrowserModel] = useState('gpt-5.5')
+  var [autoFillAfterOcr, setAutoFillAfterOcr] = useState(false)
+  var [usePlatformFixture, setUsePlatformFixture] = useState(false)
+  var [automationLogs, setAutomationLogs] = useState<Array<{ message: string; time: string }>>([])
+  var isDesktop = typeof window !== 'undefined' && Boolean(window.desktopApi)
+  var showPlatformControls = isDesktop && !embedded
 
   // 设置面板折叠状态（默认有 Key 时折叠，无 Key 时展开）
-  var savedKeysCount = useMemo(() => normalizeApiKeys(apiKey).length, [apiKey])
+  var savedKeysCount = useMemo(
+    () => Math.max(normalizeApiKeys(apiKey).length, desktopKeyCount),
+    [apiKey, desktopKeyCount],
+  )
   var [isSettingsOpen, setIsSettingsOpen] = useState(() => normalizeApiKeys(localStorage.getItem(STORAGE_KEY) || '').length === 0)
 
   // 多图上传列表与识别行数据
@@ -61,11 +82,15 @@ export default function OcrWebApp() {
 
   // 启动时尝试同步本地 Electron safeStorage / localStorage
   useEffect(() => {
-    if (window.desktopApi) {
-      window.desktopApi.loadOcrSettings().then((settings) => {
-        if (settings.model) setOcrModel(settings.model)
-      }).catch(() => {})
-    }
+    if (!window.desktopApi) return undefined
+    window.desktopApi.loadOcrSettings().then((settings) => {
+      if (settings.model) setOcrModel(settings.model)
+      setDesktopKeyCount(settings.keyCount || 0)
+      if (settings.keyCount > 0) setIsSettingsOpen(false)
+    }).catch(() => {})
+    return window.desktopApi.onAutomationLog((entry) => {
+      setAutomationLogs((current) => [...current.slice(-39), entry])
+    })
   }, [])
 
   useEffect(() => {
@@ -75,6 +100,10 @@ export default function OcrWebApp() {
     var timer = window.setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000)
     return () => window.clearInterval(timer)
   }, [busy])
+
+  useEffect(() => {
+    onRowsChange?.(allRows)
+  }, [allRows, onRowsChange])
 
   // 保存并持久化配置
   var saveSettings = () => {
@@ -87,6 +116,7 @@ export default function OcrWebApp() {
     if (window.desktopApi) {
       window.desktopApi.saveOcrSettings({ apiKeys: keys.join('\n'), model: ocrModel }).catch(() => {})
     }
+    setDesktopKeyCount(keys.length)
     setStatus(`已成功持久化保存 ${keys.length} 把 Key，下次启动将自动就绪`)
   }
 
@@ -287,7 +317,7 @@ export default function OcrWebApp() {
     if (busy) return
     if (imageList.length === 0) return setStatus('请先添加需要识别的图片')
     var keys = normalizeApiKeys(apiKey)
-    if (keys.length === 0) {
+    if (keys.length === 0 && !window.desktopApi) {
       setIsSettingsOpen(true)
       return setStatus('未检测到有效 API Key，请在设置中填入并保存')
     }
@@ -309,12 +339,28 @@ export default function OcrWebApp() {
           setImageList([...updatedList])
         },
       )
+      var mergedRows: ClassifiedPatientRow[] = []
       setAllRows((prev) => {
         var existingMap = new Map(prev.map((r) => [r.id, r]))
         rows.forEach((r) => existingMap.set(r.id, r))
-        return Array.from(existingMap.values())
+        mergedRows = Array.from(existingMap.values())
+        return mergedRows
       })
-      setStatus(`识别完成：共解析 ${rows.length} 条记录，已自动归纳五类病种`)
+      var fillableCount = selectInpatientFillRecords(mergedRows).length
+      if (embedded) {
+        setStatus(
+          fillableCount
+            ? `识别完成：共解析 ${rows.length} 条，其中 ${fillableCount} 条住院病种可填入。核对后导出 Excel，或到「平台自动化」填入`
+            : `识别完成：共解析 ${rows.length} 条记录，已自动归纳五类病种。核对后可导出 Excel`,
+        )
+      } else {
+        setStatus(`识别完成：共解析 ${rows.length} 条记录，已自动归纳五类病种`)
+        if (window.desktopApi && autoFillAfterOcr && fillableCount) {
+          setBusy(false)
+          setStatus(`识别完成：共解析 ${rows.length} 条，其中 ${fillableCount} 条住院病种可填入，正在打开平台`)
+          await fillBrowser(mergedRows)
+        }
+      }
     } catch (err) {
       setStatus(err instanceof Error ? err.message : '识别处理异常')
     } finally {
@@ -400,6 +446,44 @@ export default function OcrWebApp() {
     }
   }
 
+  var fillBrowser = async (rows?: ClassifiedPatientRow[]) => {
+    if (!window.desktopApi) return setStatus('当前不是桌面端，请使用 EXE 运行')
+    var sourceRows = Array.isArray(rows) ? rows : allRows
+    var nextRecords = selectInpatientFillRecords(sourceRows)
+    var login = {
+      loginName: loginName || (usePlatformFixture ? 'fixture' : ''),
+      loginPassword: loginPassword || (usePlatformFixture ? 'fixture' : ''),
+    }
+    if (!login.loginName || !login.loginPassword) return setStatus('请先填写平台账号和密码')
+    if (!nextRecords.length) {
+      var skipped = describeSkippedInpatientRows(sourceRows)
+      if (skipped.checkedCount === 0) return setStatus('请先勾选要填入的行')
+      if (skipped.inpatientCount === 0) return setStatus(`已勾选 ${skipped.checkedCount} 行，但没有住院病种记录可填入`)
+      return setStatus(`已勾选 ${skipped.inpatientCount} 条住院病种，但有 ${skipped.skippedIncomplete} 条缺少姓名、住院号或诊断`)
+    }
+    setStatus(`正在打开平台并填入 ${nextRecords.length} 条住院病种记录…`)
+    try {
+      var result = await window.desktopApi.fillBrowser({
+        credentials: login,
+        apiKey: browserApiKey || apiKey,
+        baseUrl: browserBaseUrl,
+        model: browserModel,
+        records: nextRecords,
+        submit: true,
+        useFixture: usePlatformFixture,
+        skipModel: usePlatformFixture,
+      })
+      setStatus(String(result))
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '浏览器自动化失败')
+    }
+  }
+
+  var clearBrowserTemplate = async () => {
+    if (!window.desktopApi) return
+    setStatus(await window.desktopApi.clearBrowserTemplate())
+  }
+
   // 统计与过滤
   var summary = useMemo(() => summarizeCategories(allRows), [allRows])
   var filteredRows = useMemo(() => {
@@ -408,28 +492,29 @@ export default function OcrWebApp() {
   }, [allRows, selectedCategoryTab])
 
   return (
-    <div className="app-shell ocr-suite">
-      {/* 顶部标题栏 */}
-      <header className="hero-clean">
-        <div className="hero-clean-left">
-          <div className="hero-title-row">
-            <h1>病历智能识别与五类合并工作台</h1>
-            <div className="badge-row">
-              <span className="badge-tag">五类病种自动归类</span>
-              <span className="badge-tag">多图并发</span>
-              <span className="badge-tag">16列标准模板直出</span>
+    <div className={embedded ? 'ocr-embedded' : 'app-shell ocr-suite'}>
+      {embedded ? null : (
+        <header className="hero-clean">
+          <div className="hero-clean-left">
+            <div className="hero-title-row">
+              <h1>病历智能识别与五类合并工作台</h1>
+              <div className="badge-row">
+                <span className="badge-tag">五类病种自动归类</span>
+                <span className="badge-tag">多图并发</span>
+                <span className="badge-tag">16列标准模板直出</span>
+              </div>
             </div>
+            <p className="hero-desc">
+              支持病历截图与 HIS 列表批量拖拽识别，自动剔除诊断 ICD 编码，智能归类住院/门诊/临床技术/手写大病历/门诊病历。
+            </p>
           </div>
-          <p className="hero-desc">
-            支持病历截图与 HIS 列表批量拖拽识别，自动剔除诊断 ICD 编码，智能归类住院/门诊/临床技术/手写大病历/门诊病历。
-          </p>
-        </div>
-        <div className="hero-clean-right">
-          <button type="button" className="subtle-btn" onClick={loadDemoData}>
-            载入示例数据
-          </button>
-        </div>
-      </header>
+          <div className="hero-clean-right">
+            <button type="button" className="subtle-btn" onClick={loadDemoData}>
+              载入示例数据
+            </button>
+          </div>
+        </header>
+      )}
 
       <main className="ocr-main-layout">
         {/* 左侧：多图上传与配置 */}
@@ -438,7 +523,19 @@ export default function OcrWebApp() {
           <div className="card upload-control-card">
             <div className="card-header">
               <h3>批量添加图片</h3>
-              <span className="card-sub">{imageList.length} 张</span>
+              <div className="card-header-actions">
+                {embedded ? (
+                  <button type="button" className="subtle-btn" onClick={loadDemoData}>
+                    载入示例数据
+                  </button>
+                ) : null}
+                {embedded && onGoToPlatform ? (
+                  <button type="button" className="subtle-btn" onClick={onGoToPlatform}>
+                    去平台自动化
+                  </button>
+                ) : null}
+                <span className="card-sub">{imageList.length} 张</span>
+              </div>
             </div>
 
             <div
@@ -584,6 +681,33 @@ export default function OcrWebApp() {
                   </label>
                 </div>
 
+                {showPlatformControls ? (
+                  <div className="field-grid-2">
+                    <label className="field-block">
+                      <span className="field-label">浏览器智能体 API Key</span>
+                      <input
+                        value={browserApiKey}
+                        onChange={(e) => setBrowserApiKey(e.target.value)}
+                        placeholder="选填，夹具测试可不填"
+                      />
+                    </label>
+                    <label className="field-block">
+                      <span className="field-label">智能体接口</span>
+                      <input value={browserBaseUrl} onChange={(e) => setBrowserBaseUrl(e.target.value)} />
+                    </label>
+                    <label className="field-block">
+                      <span className="field-label">智能体模型</span>
+                      <input value={browserModel} onChange={(e) => setBrowserModel(e.target.value)} />
+                    </label>
+                    <div className="field-block">
+                      <span className="field-label">操作模板</span>
+                      <button type="button" className="secondary-btn" onClick={clearBrowserTemplate}>
+                        清除浏览器模板
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="settings-btn-row">
                   <button type="button" className="secondary-btn" onClick={saveSettings}>
                     保存设置
@@ -618,6 +742,57 @@ export default function OcrWebApp() {
             >
               {busy ? `正在并发识别 (${elapsed}s)…` : `开始批量智能识别 (${imageList.length} 张)`}
             </button>
+            {showPlatformControls ? (
+              <div className="platform-fill-box">
+                <div className="platform-login-row">
+                  <input
+                    value={loginName}
+                    onChange={(e) => setLoginName(e.target.value)}
+                    placeholder={usePlatformFixture ? '账号（夹具可用 fixture）' : '平台账号'}
+                  />
+                  <input
+                    type="password"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    placeholder={usePlatformFixture ? '密码（夹具可用 fixture）' : '平台密码'}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="platform-fill-btn"
+                  onClick={() => fillBrowser()}
+                  disabled={busy || allRows.length === 0}
+                >
+                  登录平台并自动填入
+                </button>
+                <label className="auto-fill-check">
+                  <input
+                    type="checkbox"
+                    checked={autoFillAfterOcr}
+                    onChange={(e) => setAutoFillAfterOcr(e.target.checked)}
+                  />
+                  识别完成后自动打开平台填写并提交
+                </label>
+                <label className="auto-fill-check">
+                  <input
+                    type="checkbox"
+                    checked={usePlatformFixture}
+                    onChange={(e) => setUsePlatformFixture(e.target.checked)}
+                  />
+                  使用本地平台夹具测试（不连正式网站）
+                </label>
+                {automationLogs.length > 0 ? (
+                  <div className="automation-log-list">
+                    {automationLogs.slice(-8).map((entry, index) => (
+                      <p key={`${entry.time}-${index}`}>
+                        <span>{entry.time}</span>
+                        {entry.message}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="status-banner">{status}</div>
           </div>
         </section>
@@ -648,6 +823,25 @@ export default function OcrWebApp() {
               </div>
 
               <div className="export-action-box">
+                {embedded && onGoToPlatform ? (
+                  <button
+                    type="button"
+                    className="platform-fill-btn compact"
+                    onClick={onGoToPlatform}
+                    disabled={allRows.length === 0}
+                  >
+                    去平台自动化
+                  </button>
+                ) : showPlatformControls ? (
+                  <button
+                    type="button"
+                    className="platform-fill-btn compact"
+                    onClick={() => fillBrowser()}
+                    disabled={busy || allRows.length === 0}
+                  >
+                    填入平台
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="primary-btn export-btn"

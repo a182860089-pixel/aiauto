@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>规培平台首页夹具</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    nav { padding: 16px 24px; border-bottom: 1px solid #e2e8f0; }
+    a { display: inline-block; margin-right: 12px; }
+    iframe { width: 100%; height: calc(100vh - 64px); border: 0; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/HospitalizationRecord/Index.html" target="content">住院病种记录</a>
+    <a href="/OutpatientRecord/Index.html" target="content">门诊病种记录</a>
+  </nav>
+  <iframe name="content" id="content" title="内容区"></iframe>
+  <script>
+    window.__submittedRecords = []
+  </script>
+</body>
+</html>

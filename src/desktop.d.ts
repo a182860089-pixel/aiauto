@@ -15,7 +15,12 @@ interface DesktopApi {
     apiKey: string
     baseUrl: string
     model: string
-    fields: Record<string, string>
+    fields?: Record<string, string>
+    records?: Array<{ id: string; fields: Record<string, string> }>
+    submit?: boolean
+    useFixture?: boolean
+    skipModel?: boolean
+    platformOrigin?: string
   }): Promise<string>
   clearBrowserTemplate(): Promise<string>
   onAutomationLog(callback: (payload: { message: string; time: string }) => void): () => void

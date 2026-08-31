@@ -11,10 +11,12 @@
     "build:backend": "tsc -p backend/tsconfig.json",
     "start:backend": "npm run build:backend && node .backend-dist/httpServer.js",
     "preview": "vite preview",
-    "test": "npm run test:mapping && npm run test:excel && npm run test:classifier && npm run test:backend",
+    "test": "npm run test:mapping && npm run test:excel && npm run test:classifier && npm run test:platform && npm run test:backend",
     "test:mapping": "node --test scripts/templateMapping.test.cjs",
     "test:excel": "node --test scripts/excelExporter.test.cjs",
     "test:classifier": "node --test scripts/smartClassifier.test.cjs",
+    "test:platform": "node --test scripts/platformFields.test.cjs scripts/browserAutomation.test.cjs scripts/platform-fixture.test.cjs",
+    "test:fixture": "node scripts/run-fixture-test.cjs",
     "test:backend": "npm run build:backend && node --test scripts/backend.test.cjs",
     "electron:dev": "npm run build && electron electron/main.cjs",
     "ocr:excel": "electron scripts/ocr-to-excel.cjs",
@@ -44,7 +46,8 @@
     },
     "files": [
       "dist/**/*",
-      "electron/**/*"
+      "electron/**/*",
+      "scripts/fixtures/**/*"
     ],
     "win": {
       "target": "nsis",

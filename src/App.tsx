@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { buildFieldMap, buildSelectedSnapshot, type ExtractedField } from './demoData'
 import ManualOverrideFields from './ManualOverrideFields'
+import {
+  classifiedRowsFromOcrTable,
+  describeSkippedInpatientRows,
+  selectInpatientFillRecords,
+  snapshotToFallbackRecord,
+} from './platformFields'
 import { getManualOverrideError, rememberDepartment } from './templateMapping'
 
 const fieldLabels: Record<string, string> = {
   patientName: '患者姓名', gender: '性别', age: '年龄', admissionDate: '入院日期',
-  diagnosis: '诊断', chiefComplaint: '主诉', course: '病程描述', treatment: '处理意见',
+  diagnosis: '诊断', diagnosisWestern: '西医诊断', hospitalNo: '住院号', remarks: '备注',
+  chiefComplaint: '主诉', course: '病程描述', treatment: '处理意见',
 }
 
 const fieldsFromOcr = (result: OcrResult): ExtractedField[] => {
@@ -56,6 +63,8 @@ export default function App() {
   const [department, setDepartment] = useState('')
   const [customDepartments, setCustomDepartments] = useState<string[]>([])
   const [selectedIndexes, setSelectedIndexes] = useState<number[]>([])
+  const [autoFillAfterOcr, setAutoFillAfterOcr] = useState(true)
+  const [usePlatformFixture, setUsePlatformFixture] = useState(false)
 
   useEffect(() => {
     if (!window.desktopApi) return undefined
@@ -71,6 +80,34 @@ export default function App() {
     () => buildSelectedSnapshot(recognizedFields, selectedFields),
     [recognizedFields, selectedFields],
   )
+  const inpatientFill = useMemo(() => {
+    const category = recordCategory === '住院病种记录' ? '住院病种记录' : ''
+    const classified = classifiedRowsFromOcrTable(ocrResult?.table, selectedIndexes, {
+      sourceImage: uploadedName,
+      department,
+      category,
+    })
+    const skipped = describeSkippedInpatientRows(classified)
+    let records = selectInpatientFillRecords(classified)
+    if (!records.length) {
+      const browserFieldNames: Record<string, string> = {
+        patientName: 'PatientName',
+        hospitalNo: 'HospitalNo',
+        admissionDate: 'CreationTime',
+        diagnosis: 'Diagnosis',
+        diagnosisWestern: 'DiagnosisWestern',
+        remarks: 'Remarks',
+      }
+      const browserFields = Object.fromEntries(
+        selectedSnapshot
+          .filter((field) => browserFieldNames[field.key])
+          .map((field) => [browserFieldNames[field.key], field.value]),
+      )
+      if (department) browserFields.Department = department
+      records = snapshotToFallbackRecord(browserFields)
+    }
+    return { records, skipped }
+  }, [ocrResult, selectedIndexes, uploadedName, department, recordCategory, selectedSnapshot])
 
   const toggleField = (key: string) => {
     setSelectedFields((current) => {
@@ -145,6 +182,66 @@ export default function App() {
     }
   }
 
+  const recordsFromOcr = (result: OcrResult, indexes: number[]) => {
+    const category = recordCategory === '住院病种记录' ? '住院病种记录' : ''
+    const classified = classifiedRowsFromOcrTable(result.table, indexes, {
+      sourceImage: uploadedName,
+      department,
+      category,
+    })
+    const selected = selectInpatientFillRecords(classified)
+    if (selected.length) return selected
+    const browserFieldNames: Record<string, string> = {
+      patientName: 'PatientName',
+      hospitalNo: 'HospitalNo',
+      admissionDate: 'CreationTime',
+      diagnosis: 'Diagnosis',
+      diagnosisWestern: 'DiagnosisWestern',
+      remarks: 'Remarks',
+    }
+    const nextFields = fieldsFromOcr(result)
+    const browserFields = Object.fromEntries(
+      nextFields
+        .filter((field) => browserFieldNames[field.key])
+        .map((field) => [browserFieldNames[field.key], field.value]),
+    )
+    if (department) browserFields.Department = department
+    return snapshotToFallbackRecord(browserFields)
+  }
+
+  const fillBrowser = async (records?: ReturnType<typeof selectInpatientFillRecords>) => {
+    if (!window.desktopApi) return setStatus('当前不是 Electron 环境，请使用 EXE 运行')
+    const nextRecords = Array.isArray(records) ? records : inpatientFill.records
+    const login = {
+      loginName: loginName || (usePlatformFixture ? 'fixture' : ''),
+      loginPassword: loginPassword || (usePlatformFixture ? 'fixture' : ''),
+    }
+    if (!login.loginName || !login.loginPassword) return setStatus('请先填写平台账号和密码')
+    if (!nextRecords.length) {
+      const skipped = inpatientFill.skipped
+      if (skipped.checkedCount === 0) return setStatus('请先在 OCR 页勾选要填入的行')
+      if (skipped.inpatientCount === 0) return setStatus(`已勾选 ${skipped.checkedCount} 行，但没有住院病种记录可填入`)
+      return setStatus(`已勾选 ${skipped.inpatientCount} 条住院病种，但有 ${skipped.skippedIncomplete} 条缺少姓名、住院号或诊断`)
+    }
+    setPage('automation')
+    setStatus(`正在打开平台并填入 ${nextRecords.length} 条住院病种记录…`)
+    try {
+      const result = await window.desktopApi.fillBrowser({
+        credentials: login,
+        apiKey: browserApiKey || apiKey,
+        baseUrl: browserBaseUrl,
+        model: browserModel,
+        records: nextRecords,
+        submit: true,
+        useFixture: usePlatformFixture,
+        skipModel: usePlatformFixture,
+      })
+      setStatus(String(result))
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '浏览器自动化失败')
+    }
+  }
+
   const recognizeImage = async () => {
     const input = document.querySelector<HTMLInputElement>('#case-file')
     const file = input?.files?.[0]
@@ -154,12 +251,21 @@ export default function App() {
     const dataUrl = await readFileAsDataUrl(file)
     try {
       const result = await window.desktopApi.recognizeImage({ dataUrl, apiKey, model: ocrModel })
-      setOcrResult(result)
       const nextFields = fieldsFromOcr(result)
+      const nextIndexes = (result.table?.rows || []).map((_, index) => index)
+      setOcrResult(result)
       setRecognizedFields(nextFields)
       setSelectedFields(new Set(nextFields.map((field) => field.key)))
-      setSelectedIndexes((result.table?.rows || []).map((_, index) => index))
-      setStatus(result.table?.rows?.length ? `OCR 完成，已识别 ${result.table.rows.length} 行，请勾选后指定类别再导出` : (nextFields.length ? `OCR 完成，已识别 ${nextFields.length} 个字段，请核对并选择` : 'OCR 完成，但没有识别到可用字段'))
+      setSelectedIndexes(nextIndexes)
+      const fillRecords = recordsFromOcr(result, nextIndexes)
+      if (autoFillAfterOcr && fillRecords.length) {
+        setStatus(`OCR 完成，已识别可填入住院病种 ${fillRecords.length} 条，正在打开平台自动填写并提交`)
+        await fillBrowser(fillRecords)
+        return
+      }
+      setStatus(result.table?.rows?.length
+        ? `OCR 完成，已识别 ${result.table.rows.length} 行${fillRecords.length ? `，其中 ${fillRecords.length} 条可自动填入平台` : '，请核对后手动填入'}`
+        : (nextFields.length ? `OCR 完成，已识别 ${nextFields.length} 个字段，请核对并选择` : 'OCR 完成，但没有识别到可用字段'))
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'OCR 失败')
     }
@@ -186,36 +292,6 @@ export default function App() {
       }
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Excel 导出失败')
-    }
-  }
-
-  const fillBrowser = async () => {
-    if (!window.desktopApi) return setStatus('当前不是 Electron 环境，请使用 EXE 运行')
-    if (!loginName || !loginPassword) return setStatus('请先填写平台账号和密码')
-    setStatus('正在打开自动化浏览器…')
-    try {
-      const browserFieldNames: Record<string, string> = {
-        patientName: 'PatientName',
-        admissionDate: 'CreationTime',
-        diagnosis: 'Diagnosis',
-        diagnosisWestern: 'DiagnosisWestern',
-        remarks: 'Remarks',
-      }
-      const browserFields = Object.fromEntries(
-        selectedSnapshot
-          .filter((field) => browserFieldNames[field.key])
-          .map((field) => [browserFieldNames[field.key], field.value]),
-      )
-      const result = await window.desktopApi.fillBrowser({
-        credentials: { loginName, loginPassword },
-        apiKey: browserApiKey || apiKey,
-        baseUrl: browserBaseUrl,
-        model: browserModel,
-        fields: browserFields,
-      })
-      setStatus(String(result))
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : '浏览器自动化失败')
     }
   }
 
@@ -278,7 +354,15 @@ export default function App() {
             onRecordCategoryChange={setRecordCategory}
             onDepartmentChange={rememberTypedDepartment}
           />
-          <div className="action-row"><button type="button" className="primary-btn" onClick={recognizeImage}>识别图片</button><button type="button" onClick={exportOcrExcel} disabled={!ocrResult}>导出模板 Excel</button></div>
+          <div className="action-row">
+            <button type="button" className="primary-btn" onClick={recognizeImage}>识别图片</button>
+            <button type="button" onClick={exportOcrExcel} disabled={!ocrResult}>导出模板 Excel</button>
+            <button type="button" className="automation-btn" onClick={() => fillBrowser()}>登录平台并自动填入</button>
+          </div>
+          <div className="auto-fill-options">
+            <label><input type="checkbox" checked={autoFillAfterOcr} onChange={(event) => setAutoFillAfterOcr(event.target.checked)} />识别完成后自动打开平台填写并提交</label>
+            <label><input type="checkbox" checked={usePlatformFixture} onChange={(event) => setUsePlatformFixture(event.target.checked)} />使用本地平台夹具测试（不连正式网站）</label>
+          </div>
           <p className="status-text">{status}</p>
         </section>
         <section className="panel">
@@ -407,8 +491,9 @@ export default function App() {
             <button type="button" onClick={exportOcrExcel} disabled={!ocrResult}>
               导出 Excel
             </button>
-            <button type="button" className="automation-btn" onClick={fillBrowser}>登录平台并自动填入</button>
+            <button type="button" className="automation-btn" onClick={() => fillBrowser()}>登录平台并自动填入</button>
           </div>
+          <p className="status-text">OCR 已勾选 {selectedIndexes.length} 行，可填入住院病种 {inpatientFill.records.length} 条。识别完成后会自动打开平台填写并提交。</p>
           <p className="status-text">{status}</p>
           <div className="log-panel">
             <div className="log-header">
@@ -443,9 +528,11 @@ export default function App() {
             <label className="config-field"><span>接口地址</span><input value={browserBaseUrl} onChange={(event) => setBrowserBaseUrl(event.target.value)} /></label>
             <label className="config-field"><span>模型</span><input value={browserModel} onChange={(event) => setBrowserModel(event.target.value)} /></label>
           </div>
-          <div className="drawer-section"><h3>平台登录信息</h3><p>账号和密码仅在本次运行中使用。</p>
+          <div className="drawer-section"><h3>平台登录信息</h3><p>账号和密码仅在本次运行中使用。勾选本地夹具时可用任意账号走测试页。</p>
             <label className="config-field"><span>平台账号</span><input value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="username" /></label>
             <label className="config-field"><span>平台密码</span><input type="password" value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} autoComplete="current-password" /></label>
+            <label className="config-check"><input type="checkbox" checked={autoFillAfterOcr} onChange={(event) => setAutoFillAfterOcr(event.target.checked)} />识别完成后自动打开平台填写并提交</label>
+            <label className="config-check"><input type="checkbox" checked={usePlatformFixture} onChange={(event) => setUsePlatformFixture(event.target.checked)} />使用本地平台夹具测试</label>
           </div>
           <button type="button" className="drawer-done" onClick={() => setConfigOpen(false)}>完成</button>
         </aside>

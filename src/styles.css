@@ -486,6 +486,89 @@ button {
   line-height: 1.4;
 }
 
+.platform-fill-box {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.platform-login-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.platform-login-row input {
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.platform-fill-btn {
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.platform-fill-btn:hover:not(:disabled) {
+  background: #0d9488;
+}
+
+.platform-fill-btn:disabled {
+  background: #cbd5e1;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.platform-fill-btn.compact {
+  width: auto;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.auto-fill-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 12px;
+  color: #475569;
+  font-weight: 500;
+}
+
+.automation-log-list {
+  max-height: 120px;
+  overflow: auto;
+  padding: 6px 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+}
+
+.automation-log-list p {
+  margin: 0 0 4px;
+  font-size: 11px;
+  color: #334155;
+}
+
+.automation-log-list span {
+  color: #94a3b8;
+  margin-right: 6px;
+}
+
+.export-action-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* 右侧面板 */
 .table-container-card {
   padding: 0;
@@ -733,11 +816,174 @@ button {
   color: #94a3b8;
 }
 
-.empty-icon-svg {
-  width: 42px;
-  height: 42px;
-  stroke: #cbd5e1;
+.card-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ocr-embedded {
+  min-width: 0;
+}
+
+/* 桌面两页顶栏 */
+.desktop-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 14px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+
+.desktop-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.desktop-brand strong {
+  font-size: 18px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.2px;
+}
+
+.desktop-brand p {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.desktop-page-nav {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.desktop-page-nav button {
+  padding: 7px 14px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.desktop-page-nav button:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+.desktop-page-nav button.active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+/* 平台页：数据来源与填入范围 */
+.source-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.source-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 5px;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+}
+
+.source-option input {
+  margin: 0;
+}
+
+.source-option.active {
+  background: #0f172a;
+  border-color: #0f172a;
+  color: #ffffff;
+}
+
+.source-switch .template-btn-label {
+  flex: 0 0 auto;
+}
+
+.scope-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   margin-bottom: 8px;
+  padding: 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #f8fafc;
+  cursor: pointer;
+}
+
+.scope-option:last-of-type {
+  margin-bottom: 0;
+}
+
+.scope-option input {
+  margin-top: 2px;
+}
+
+.scope-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.scope-option strong {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.scope-option small {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+.scope-option.active {
+  border-color: #99f6e4;
+  background: #f0fdfa;
+}
+
+.platform-page .launch-card .card-header {
+  margin-bottom: 12px;
+}
+
+.platform-page .launch-card .auto-fill-check {
+  margin-top: 10px;
+}
+
+.platform-page .empty-state {
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .desktop-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
 
 /* 弹窗样式 */

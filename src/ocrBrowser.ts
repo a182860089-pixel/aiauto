@@ -256,6 +256,20 @@ export async function requestVisionOcr(options: {
 }
 
 /**
+ * 把 OCR 表格转成等长二维数组，兼容对象行和数组行。
+ * @param table 识别结果中的表格
+ * @return 表头与数据行
+ */
+function tableToMatrix(table?: { columns?: string[]; rows?: Array<Record<string, string> | string[]> }) {
+  var columns = Array.isArray(table?.columns) ? table.columns.map(String) : []
+  var rows = (table?.rows || []).map((row) => {
+    if (Array.isArray(row)) return row.map((cell) => String(cell ?? ''))
+    return columns.map((column) => String(row[column] ?? ''))
+  })
+  return { columns, rows }
+}
+
+/**
  * 识别单张图片并将其每一行转换为 ClassifiedPatientRow 结构
  */
 export async function recognizeAndClassifyImage(
@@ -264,9 +278,22 @@ export async function recognizeAndClassifyImage(
   model: string = DEFAULT_OCR_MODEL,
   defaultDepartment: string = '通州呼吸科二区',
 ): Promise<ClassifiedPatientRow[]> {
-  var preview = await requestVisionOcr({ dataUrl: imageItem.dataUrl, apiKeys, model })
-  var columns = preview.columns
-  var rows = preview.rows
+  var columns: string[]
+  var rows: string[][]
+  if (typeof window !== 'undefined' && window.desktopApi?.recognizeImage) {
+    var desktopResult = await window.desktopApi.recognizeImage({
+      dataUrl: imageItem.dataUrl,
+      apiKey: Array.isArray(apiKeys) ? apiKeys.join('\n') : String(apiKeys || ''),
+      model,
+    })
+    var matrix = tableToMatrix(desktopResult.table)
+    columns = matrix.columns
+    rows = matrix.rows
+  } else {
+    var preview = await requestVisionOcr({ dataUrl: imageItem.dataUrl, apiKeys, model })
+    columns = preview.columns
+    rows = preview.rows
+  }
 
   var classifiedRows: ClassifiedPatientRow[] = []
   rows.forEach((rowValues, rowIndex) => {
@@ -299,7 +326,9 @@ export async function processBatchImages(
   onProgress?: (updatedItem: UploadedImageItem, allItems: UploadedImageItem[]) => void,
 ): Promise<ClassifiedPatientRow[]> {
   var keys = normalizeApiKeys(apiKeys)
-  if (keys.length === 0) throw new Error('请先填写硅基流动 API Key')
+  if (keys.length === 0 && !(typeof window !== 'undefined' && window.desktopApi)) {
+    throw new Error('请先填写硅基流动 API Key')
+  }
 
   // 限制同时处理的图片并发数，避免耗尽连接
   var concurrency = Math.min(Math.max(1, keys.length), 3)

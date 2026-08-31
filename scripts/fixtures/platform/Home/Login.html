@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>规培平台登录夹具</title>
+  <style>
+    body { font-family: sans-serif; max-width: 420px; margin: 48px auto; }
+    label { display: block; margin: 12px 0 4px; }
+    input { width: 100%; padding: 8px; }
+    button { margin-top: 16px; padding: 8px 16px; }
+    .error-msg { color: #b91c1c; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>规培管理系统</h1>
+  <form id="login-form">
+    <label for="LAY-user-login-username">账号</label>
+    <input id="LAY-user-login-username" name="loginName" />
+    <label for="LAY-user-login-password">密码</label>
+    <input id="LAY-user-login-password" name="loginPassword" type="password" />
+    <p class="error-msg"></p>
+    <button type="submit">登录</button>
+  </form>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', (event) => {
+      event.preventDefault()
+      var name = document.getElementById('LAY-user-login-username').value.trim()
+      var password = document.getElementById('LAY-user-login-password').value.trim()
+      if (!name || !password) {
+        document.querySelector('.error-msg').textContent = '请输入账号和密码'
+        return
+      }
+      location.href = '/'
+    })
+  </script>
+</body>
+</html>
