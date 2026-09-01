@@ -39,6 +39,11 @@ test('platform fixture: 本地登录页、住院病种入口和新增表单可�
     const createHtml = await (await fetch(`${origin}/HospitalizationRecord/Create.html`)).text()
     assert.match(createHtml, /placeholder="病人姓名"/)
     assert.match(createHtml, />确定</)
+    assert.match(createHtml, /呼吸科二区/)
+    assert.match(createHtml, /针灸科二区/)
+    assert.match(createHtml, /肾病内分泌科四区/)
+    assert.match(createHtml, /心血管二区/)
+    assert.match(createHtml, /name="Department"/)
     const emptyForm = {
       url: `${origin}/HospitalizationRecord/Index.html`,
       main: { text: '住院病种记录', controls: [{ text: '添加', value: '' }] },

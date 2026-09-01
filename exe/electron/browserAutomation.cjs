@@ -1,6 +1,33 @@
+const { matchDepartment, platformDepartmentOptions } = require('./departments.cjs')
+
 const CORE_FIELD_KEYS = ['PatientName', 'HospitalNo', 'Diagnosis', 'DiagnosisWestern', 'CreationTime']
-const SKIP_FILL_KEYS = new Set(['Department', 'VisitRole'])
+const SKIP_FILL_KEYS = new Set(['Department', 'VisitRole', 'RecordCategory'])
+
+function applyMatchedDepartment(fields, options) {
+  var next = { ...(fields || {}) }
+  var wanted = String(next.Department || '').trim()
+  var matched = matchDepartment(wanted, platformDepartmentOptions(options))
+  if (matched) next.Department = matched
+  return { fields: next, wanted, matched: matched || '' }
+}
+
 const SUBMIT_TARGETS = ['确定', '确认', '保存']
+const RECORD_CATEGORIES = ['住院病种记录', '门诊病种记录', '临床技术记录', '手写大病历', '门诊病历']
+
+function shouldSkipTemplateAction(action) {
+  var target = String(action?.target || '').trim()
+  if (RECORD_CATEGORIES.includes(target) || target === '登记手册') return true
+  if (action?.fieldName === 'Department' || action?.fieldName === 'VisitRole' || action?.fieldName === 'RecordCategory') return true
+  if (target === '所在科室' || target === '科室') return true
+  return false
+}
+const CATEGORY_INDEX_HINT = {
+  住院病种记录: /HospitalizationRecord/i,
+  门诊病种记录: /OutpatientRecord|OutpatientDisease|ClinicRecord|ClinicDisease/i,
+  临床技术记录: /ClinicalSkill|ClinicalTechn|SkillRecord|TechniqueRecord/i,
+  手写大病历: /Handwrit|HandMedical|InpatientCase/i,
+  门诊病历: /OutpatientMedical|OutpatientCase|ClinicMedical/i,
+}
 const FIELD_TARGETS = {
   PatientName: '病人姓名',
   HospitalNo: '住院号',
@@ -9,15 +36,36 @@ const FIELD_TARGETS = {
   CreationTime: '住院日期',
   Remarks: '备注',
   VisitRole: '主管',
+  Department: '所在科室',
+  OperationName: '操作名称',
 }
 const FIELD_NAMES = {
   PatientName: ['PatientName', '病人姓名'],
-  HospitalNo: ['HospitalNo', 'HospitalizationCode', '住院号'],
+  HospitalNo: ['HospitalNo', 'HospitalizationCode', '住院号', '病历号', '门诊号', 'OutpatientCode', 'MedicalRecordNo'],
   Diagnosis: ['Diagnosis', '中医诊断'],
   DiagnosisWestern: ['DiagnosisWestern', '西医诊断'],
-  CreationTime: ['CreationTime', '住院日期'],
+  CreationTime: ['CreationTime', '住院日期', '就诊日期', '操作日期', '日期'],
   Remarks: ['Remarks', '备注'],
-  VisitRole: ['Visit', 'VisitRole', '主管'],
+  VisitRole: ['Visit', 'VisitRole', '主管', '初诊'],
+  Department: ['Department', 'DepartmentId', 'DeptId', '所在科室', '科室'],
+  OperationName: ['OperationName', '操作名称'],
+}
+
+function getCategoryFieldTargets(category) {
+  var targets = { ...FIELD_TARGETS }
+  if (category === '门诊病种记录') {
+    targets.HospitalNo = '病历号'
+    targets.CreationTime = '就诊日期'
+  } else if (category === '临床技术记录') {
+    targets.CreationTime = '操作日期'
+  } else if (category === '手写大病历' || category === '门诊病历') {
+    targets.CreationTime = '日期'
+  }
+  return targets
+}
+
+function resolveRecordCategory(fields, session) {
+  return String(session?.category || fields?.RecordCategory || '住院病种记录').trim() || '住院病种记录'
 }
 
 function sleep(ms) {
@@ -34,14 +82,15 @@ function coreFieldValues(fields) {
 
 function getFillableFieldEntries(fields) {
   var seen = new Set()
+  var targets = getCategoryFieldTargets(resolveRecordCategory(fields))
   return CORE_FIELD_KEYS.concat(Object.keys(fields || {})).filter((key) => {
     if (seen.has(key) || SKIP_FILL_KEYS.has(key) || !String(fields?.[key] || '').trim()) return false
     seen.add(key)
     return true
   }).map((key) => ({
     key,
-    target: FIELD_TARGETS[key] || key,
-    names: FIELD_NAMES[key] || [key, FIELD_TARGETS[key] || key],
+    target: targets[key] || FIELD_TARGETS[key] || key,
+    names: FIELD_NAMES[key] || [key, targets[key] || FIELD_TARGETS[key] || key],
     value: String(fields[key]),
   }))
 }
@@ -53,22 +102,45 @@ function getObservationControls(observation) {
   ]
 }
 
+function compactFieldValue(value) {
+  return String(value || '').replace(/\s+/g, '').replace(/[/\-年月日.]/g, '')
+}
+
+function valuePresentInControls(expected, currentValues) {
+  var wanted = String(expected || '').trim()
+  if (!wanted) return true
+  if (currentValues.includes(wanted)) return true
+  var compactWanted = compactFieldValue(wanted)
+  return currentValues.some((value) => {
+    var current = String(value || '').trim()
+    if (!current) return false
+    if (current.includes(wanted) || wanted.includes(current)) return true
+    var compactCurrent = compactFieldValue(current)
+    return Boolean(compactWanted && compactCurrent && (compactCurrent.includes(compactWanted) || compactWanted.includes(compactCurrent)))
+  })
+}
+
+function missingTargetFieldValues(observation, fields) {
+  var currentValues = getObservationControls(observation).map((control) => String(control.value || ''))
+  return coreFieldValues(fields).filter((value) => !valuePresentInControls(value, currentValues))
+}
+
 function areTargetFieldsFilled(observation, fields) {
   var expectedValues = coreFieldValues(fields)
   if (expectedValues.length === 0) return false
-  var currentValues = getObservationControls(observation).map((control) => String(control.value || ''))
-  return expectedValues.every((value) => currentValues.includes(value))
+  return missingTargetFieldValues(observation, fields).length === 0
 }
 
 function getFillRecords(payload) {
   if (Array.isArray(payload?.records) && payload.records.length) {
     return payload.records.map((record, index) => ({
       id: String(record?.id || `record-${index}`),
+      category: resolveRecordCategory(record?.fields, record),
       fields: record?.fields && typeof record.fields === 'object' ? record.fields : {},
     })).filter((record) => coreFieldValues(record.fields).length > 0)
   }
   if (payload?.fields && coreFieldValues(payload.fields).length) {
-    return [{ id: 'record-0', fields: payload.fields }]
+    return [{ id: 'record-0', category: resolveRecordCategory(payload.fields, payload), fields: payload.fields }]
   }
   return []
 }
@@ -88,11 +160,12 @@ function dedupeFillRecords(records) {
   var skipped = []
   ;(records || []).forEach((record) => {
     var hospitalNo = recordHospitalNo(record)
-    if (hospitalNo && seen.has(hospitalNo)) {
+    var key = `${resolveRecordCategory(record?.fields, record)}:${hospitalNo}`
+    if (hospitalNo && seen.has(key)) {
       skipped.push(record)
       return
     }
-    if (hospitalNo) seen.add(hospitalNo)
+    if (hospitalNo) seen.add(key)
     unique.push(record)
   })
   return { records: unique, skipped }
@@ -116,15 +189,23 @@ function shouldSubmit(payload) {
 
 function isCreateSrc(src) {
   var text = String(src || '')
-  if (text.includes('/HospitalizationRecord/Create')) return true
-  if (text.includes('/HospitalizationRecord/Detail') && (/[?&]type=Add\b/i.test(text) || /\/Detail\/0(\b|\?|$)/.test(text))) return true
+  if (/\/Create(\.html)?(\b|\?|$)/i.test(text)) return true
+  if (/\/Detail/i.test(text) && (/[?&]type=Add\b/i.test(text) || /\/Detail\/0(\b|\?|$)/.test(text))) return true
+  return false
+}
+
+function isIndexSrc(src) {
+  var text = String(src || '')
+  if (/Home\/(Index|Login)/i.test(text)) return false
+  if (/Record\/Index/i.test(text)) return true
+  if (/\/Index(\.html)?(\b|\?|$)/i.test(text) && !/\/Home\//i.test(text)) return true
   return false
 }
 
 function frameHasCreateFields(frame) {
   return (frame?.controls || []).some((control) => {
-    var haystack = [control.name, control.id].join(' ')
-    return /HospitalizationCode/.test(haystack)
+    var haystack = [control.name, control.id, control.placeholder, control.text].join(' ')
+    return /HospitalizationCode|Diagnosis|中医诊断|所在科室/.test(haystack)
   })
 }
 
@@ -180,9 +261,20 @@ function pageKind(observation) {
   var sources = [url, ...(observation?.frames || []).map((frame) => String(frame.src || ''))]
   if (sources.some(isCreateSrc) || getCreateFrame(observation)) return 'create'
   var combined = sources.join('\n')
-  if (combined.includes('/HospitalizationRecord/Index')) return 'index'
+  if (sources.some(isIndexSrc) || /Record\/Index/i.test(combined)) return 'index'
   if (combined.includes('/Home/Login')) return 'login'
   return 'home'
+}
+
+function indexMatchesCategory(observation, category) {
+  var combined = [
+    observation?.url || '',
+    ...(observation?.frames || []).map((frame) => String(frame.src || '')),
+  ].join('\n')
+  var hint = CATEGORY_INDEX_HINT[category]
+  if (hint && hint.test(combined)) return true
+  if ((!category || category === '住院病种记录') && /HospitalizationRecord/i.test(combined)) return true
+  return false
 }
 
 function summarizeObservation(observation) {
@@ -199,10 +291,19 @@ function summarizeObservation(observation) {
  */
 function getBuiltinNextAction(observation, fields, session) {
   session = session || {}
+  var category = resolveRecordCategory(fields, session)
   var kind = pageKind(observation)
   if (session.stopAtIndex) {
-    if (kind === 'index') return { action: 'done', target: '', value: '', message: '已在住院病种列表' }
+    if (kind === 'index' && (indexMatchesCategory(observation, category) || session.arrivedCategory === category)) {
+      return { action: 'done', target: '', value: '', message: `已在${category}列表` }
+    }
     if (kind === 'create') return { action: 'wait', target: '', value: '', message: '等待新增表单关闭' }
+    if (hasControlText(observation, category)) {
+      return { action: 'click', target: category, value: '', message: `进入${category}` }
+    }
+    if (hasControlText(observation, '登记手册')) {
+      return { action: 'click', target: '登记手册', value: '', message: '展开登记手册' }
+    }
   } else {
     if (areTargetFieldsFilled(observation, fields)) {
       return { action: 'done', target: '', value: '', message: '字段已填入' }
@@ -213,14 +314,19 @@ function getBuiltinNextAction(observation, fields, session) {
       return { action: 'wait', target: '', value: '', message: '等待新增表单字段' }
     }
   }
-  if (kind === 'index' && hasControlText(observation, '添加')) {
-    return { action: 'click', target: '添加', value: '', message: '打开新增住院病种' }
+  if (!session.stopAtIndex && kind === 'index' && hasControlText(observation, '添加')) {
+    if (indexMatchesCategory(observation, category) || session.arrivedCategory === category) {
+      return { action: 'click', target: '添加', value: '', message: `打开新增${category}` }
+    }
   }
-  if (hasControlText(observation, '住院病种记录')) {
-    return { action: 'click', target: '住院病种记录', value: '', message: '进入住院病种记录' }
+  if (hasControlText(observation, category)) {
+    return { action: 'click', target: category, value: '', message: `进入${category}` }
   }
-  if (kind === 'home' && observationText(observation).includes('住院病种记录')) {
-    return { action: 'click', target: '住院病种记录', value: '', message: '进入住院病种记录' }
+  if (hasControlText(observation, '登记手册')) {
+    return { action: 'click', target: '登记手册', value: '', message: '展开登记手册' }
+  }
+  if (kind === 'home' && observationText(observation).includes(category)) {
+    return { action: 'click', target: category, value: '', message: `进入${category}` }
   }
   return null
 }
@@ -251,15 +357,15 @@ const PAGE_HELPER_SCRIPT = `
   };
   const isCreateSrc = (src) => {
     const text = String(src || '');
-    return text.includes('/HospitalizationRecord/Create')
-      || (text.includes('/HospitalizationRecord/Detail') && (/[?&]type=Add\\b/i.test(text) || /\\/Detail\\/0(\\b|\\?|$)/.test(text)));
+    return /\\/Create(\\.html)?(\\b|\\?|$)/i.test(text)
+      || (/\\/Detail/i.test(text) && (/[?&]type=Add\\b/i.test(text) || /\\/Detail\\/0(\\b|\\?|$)/.test(text)));
   };
   const createIsOpen = (entries) => entries.some((entry) => {
     if (isCreateSrc(entry.src)) return true;
-    try { return Boolean(entry.doc && entry.doc.querySelector('[name="HospitalizationCode"], #HospitalizationCode')); }
+    try { return Boolean(entry.doc && entry.doc.querySelector('[name="HospitalizationCode"], #HospitalizationCode, [name="Diagnosis"], #Diagnosis')); }
     catch { return false; }
   });
-  const locationName = (src) => isCreateSrc(src) ? '新增表单' : String(src || '').includes('/HospitalizationRecord/Index') ? '记录列表' : '主页面';
+  const locationName = (src) => isCreateSrc(src) ? '新增表单' : /\\/Index/i.test(String(src || '')) && !/Home\\/Index/i.test(String(src || '')) ? '记录列表' : '主页面';
   const collectDocs = (rootDoc, rootSrc) => {
     const entries = [{ doc: rootDoc, src: rootSrc || '' }];
     const walk = (doc, depth) => {
@@ -327,7 +433,7 @@ function buildExecuteBrowserActionScript(action) {
       if (action.action === 'fill' || (action.action === 'click' && submitTargets.includes(String(action.target || '').trim()))) {
         return Number(isCreateSrc(right.src)) - Number(isCreateSrc(left.src));
       }
-      if (action.action === 'click') return Number(String(right.src).includes('/HospitalizationRecord/Index')) - Number(String(left.src).includes('/HospitalizationRecord/Index'));
+      if (action.action === 'click') return Number(/\\/Index/i.test(String(right.src)) && !/Home\\/Index/i.test(String(right.src))) - Number(/\\/Index/i.test(String(left.src)) && !/Home\\/Index/i.test(String(left.src)));
       return 0;
     });
     const selector = action.action === 'fill' ? 'input,textarea,select' : 'button,a,input[type="button"],input[type="submit"],[role="button"]';
@@ -345,7 +451,7 @@ function buildExecuteBrowserActionScript(action) {
       if (target === '住院号' && directValues.includes('hospitalizationcode')) points += 180;
       if (String(parentText).toLowerCase().includes(target)) points += 40;
       if (action.action === 'fill' && isCreateSrc(candidate.src)) points += 200;
-      if (action.action === 'click' && target === '添加' && String(candidate.src).includes('/HospitalizationRecord/Index') && !isCreateSrc(candidate.src)) points += 200;
+      if (action.action === 'click' && target === '添加' && /\\/Index/i.test(String(candidate.src)) && !/Home\\/Index/i.test(String(candidate.src)) && !isCreateSrc(candidate.src)) points += 200;
       if (action.action === 'click' && submitTargets.includes(String(action.target || '').trim()) && isCreateSrc(candidate.src)) points += 240;
       if (action.action === 'click' && submitTargets.includes(String(action.target || '').trim()) && (element.id === 'btnSearch' || String(element.className).includes('layui-laypage-btn'))) points -= 300;
       if (action.action === 'click' && ['取消', '关闭'].includes(String(action.target || '').trim())) points -= 120;
@@ -371,12 +477,64 @@ function buildFillCreateFormScript(fields) {
   return `(() => {
     ${PAGE_HELPER_SCRIPT}
     const fields = ${JSON.stringify(getFillableFieldEntries(fields))};
+    const departmentValue = ${JSON.stringify(String(fields?.Department || ''))};
+    const visitRole = ${JSON.stringify(String(fields?.VisitRole || ''))};
     const entries = collectDocs(document, location.href).filter((entry) => entry.doc);
-    const preferred = entries.filter((entry) => isCreateSrc(entry.src) || Boolean(entry.doc.querySelector('[name="HospitalizationCode"], #HospitalizationCode')));
+    const preferred = entries.filter((entry) => isCreateSrc(entry.src) || Boolean(entry.doc.querySelector('[name="HospitalizationCode"], #HospitalizationCode, [name="Diagnosis"], #Diagnosis')));
     const docs = preferred;
     if (!docs.length) {
-      return { ok: false, filled: [], missing: fields.map((field) => field.target), message: '新增表单控件尚未出现' };
+      return { ok: false, filled: [], missing: fields.map((field) => field.target), departments: [], message: '新增表单控件尚未出现' };
     }
+    const compactDept = (value) => String(value || '').replace(/\\s+/g, '').replace(/^通州/, '').trim();
+    const deptZone = (value) => {
+      const matched = compactDept(value).match(/([一二三四五六七八九十\\d]+)区$/);
+      return matched ? matched[1] : '';
+    };
+    const deptStem = (value) => compactDept(value).replace(/[一二三四五六七八九十\\d]+区$/, '').replace(/科$/, '');
+    const withoutOptionalKe = (value) => value.replace(/科(?=[一二三四五六七八九十\\d]*区$)/, '');
+    const scoreDept = (wanted, option) => {
+      const rawA = String(wanted || '').replace(/\\s+/g, '').trim();
+      const rawB = String(option || '').replace(/\\s+/g, '').trim();
+      if (!rawA || !rawB || rawB === '请选择') return 0;
+      if (rawA === rawB) return 110;
+      const a = compactDept(wanted);
+      const b = compactDept(option);
+      if (!a || !b || b === '请选择') return 0;
+      if (a === b) return 100;
+      const aNorm = withoutOptionalKe(a);
+      const bNorm = withoutOptionalKe(b);
+      if (aNorm === bNorm) return 95;
+      const zoneA = deptZone(a);
+      const zoneB = deptZone(b);
+      if (zoneA && zoneB && zoneA !== zoneB) return 0;
+      if (b.includes(a) || a.includes(b) || bNorm.includes(aNorm) || aNorm.includes(bNorm)) return 80;
+      const sa = deptStem(a);
+      const sb = deptStem(b);
+      if (sa && sa === sb) return zoneA && zoneB && zoneA === zoneB ? 90 : 60;
+      if (sa && sb && (sb.includes(sa) || sa.includes(sb))) return zoneA && zoneB && zoneA === zoneB ? 70 : 45;
+      return 0;
+    };
+    const matchDept = (wanted, options) => {
+      let best = { option: '', score: 0 };
+      options.forEach((option) => {
+        const score = scoreDept(wanted, option);
+        if (score > best.score) best = { option, score };
+      });
+      return best.score >= 45 ? best.option : '';
+    };
+    const findDepartmentSelect = (doc) => {
+      const selects = [...doc.querySelectorAll('select')];
+      return selects.find((element) => /Department/i.test([element.getAttribute('name'), element.id].join(' ')))
+        || selects.find((element) => {
+          const item = element.closest('.layui-form-item,.form-group,tr,li') || element.parentElement;
+          return /所在科室|科室/.test(String((item && item.innerText) || ''));
+        });
+    };
+    const optionTexts = (select) => [...select.options].map((option) => String(option.text || '').trim()).filter((text) => text && text !== '请选择');
+    const collectDepartmentOptions = (doc) => {
+      const select = findDepartmentSelect(doc);
+      return select ? optionTexts(select) : [];
+    };
     const setValue = (element, value) => {
       if (element.type === 'radio' || element.type === 'checkbox') {
         if (!element.checked) element.click();
@@ -391,6 +549,37 @@ function buildFillCreateFormScript(fields) {
       const doc = element.ownerDocument;
       const jq = doc.defaultView && (doc.defaultView.jQuery || doc.defaultView.$ || doc.defaultView.layui && doc.defaultView.layui.jquery);
       if (jq) jq(element).val(value).trigger('input').trigger('change');
+    };
+    const fillDepartment = (doc, wanted) => {
+      const select = findDepartmentSelect(doc);
+      if (!select) return { departments: [], matched: '', selected: false };
+      const departments = optionTexts(select);
+      const matched = matchDept(wanted, departments);
+      if (!matched) return { departments, matched: '', selected: false };
+      const option = [...select.options].find((itemOption) => String(itemOption.text || '').trim() === matched);
+      if (!option) return { departments, matched, selected: false };
+      const item = select.closest('.layui-form-item,.form-group') || select.parentElement;
+      const layuiBox = (item && item.querySelector('.layui-form-select'))
+        || (select.nextElementSibling && String(select.nextElementSibling.className || '').includes('layui-form-select') ? select.nextElementSibling : null);
+      setValue(select, option.value);
+      select.value = option.value;
+      if (layuiBox) {
+        const titleBox = layuiBox.querySelector('.layui-select-title') || layuiBox.querySelector('input');
+        if (titleBox) titleBox.click();
+        const dd = [...layuiBox.querySelectorAll('dd')].find((node) => String(node.innerText || '').trim() === matched);
+        if (dd) dd.click();
+        const titleInput = layuiBox.querySelector('input');
+        if (titleInput) {
+          titleInput.value = matched;
+          titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+          titleInput.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+      const jq = doc.defaultView && (doc.defaultView.jQuery || doc.defaultView.$);
+      if (jq) jq(select).val(option.value).trigger('change');
+      const selectedText = select.selectedIndex >= 0 ? String(select.options[select.selectedIndex].text || '').trim() : '';
+      const titleVal = layuiBox && layuiBox.querySelector('input') ? String(layuiBox.querySelector('input').value || '').trim() : '';
+      return { departments, matched, selected: selectedText === matched || titleVal === matched };
     };
     const filled = [];
     const missing = [];
@@ -421,16 +610,61 @@ function buildFillCreateFormScript(fields) {
       if (selected.element.type === 'radio' || String(selected.element.value || '') !== String(field.value || '')) setValue(selected.element, field.value);
       filled.push(field.target);
     }
-    const visit = docs[0].doc.querySelector('input[name="Visit"][value="主管"]');
+    const deptResult = fillDepartment(docs[0].doc, departmentValue);
+    if (departmentValue) {
+      if (deptResult.selected) filled.push('所在科室');
+      else missing.push('所在科室');
+    }
+    const visitValue = visitRole || '主管';
+    const visit = docs[0].doc.querySelector('input[name="Visit"][value="' + visitValue + '"]')
+      || [...docs[0].doc.querySelectorAll('input[type="radio"]')].find((element) => String(element.value || '').trim() === visitValue);
     if (visit && !visit.checked) visit.click();
+    else if (!visit && visitValue === '主管') {
+      const fallbackVisit = docs[0].doc.querySelector('input[name="Visit"][value="主管"]');
+      if (fallbackVisit && !fallbackVisit.checked) fallbackVisit.click();
+    }
     return {
       ok: missing.length === 0 && filled.length > 0,
       filled,
       missing,
+      departments: deptResult.departments || [],
+      matchedDepartment: deptResult.matched || '',
+      selectedDepartment: Boolean(deptResult.selected),
       message: filled.length
-        ? ('已填入新增表单：' + filled.join('、') + (missing.length ? '；仍缺：' + missing.join('、') : ''))
+        ? ('已填入新增表单：' + filled.join('、') + (deptResult.selected ? '；已点选科室「' + deptResult.matched + '」' : '') + (missing.length ? '；仍缺：' + missing.join('、') : ''))
         : '新增表单控件尚未出现',
     };
+  })()`
+}
+
+function buildReadDepartmentOptionsScript() {
+  return `(() => {
+    ${PAGE_HELPER_SCRIPT}
+    const entries = collectDocs(document, location.href).filter((entry) => entry.doc);
+    const docs = entries.filter((entry) => isCreateSrc(entry.src) || Boolean(entry.doc.querySelector('[name="HospitalizationCode"], #HospitalizationCode, [name="Diagnosis"], #Diagnosis, [name="OutpatientCode"], #OutpatientCode')));
+    const names = [];
+    const seen = new Set();
+    const add = (text) => {
+      const value = String(text || '').trim();
+      if (!value || value === '请选择' || seen.has(value)) return;
+      seen.add(value);
+      names.push(value);
+    };
+    docs.forEach((entry) => {
+      [...entry.doc.querySelectorAll('select')].forEach((select) => {
+        const hay = [select.getAttribute('name'), select.id].join(' ');
+        const item = select.closest('.layui-form-item,.form-group,tr,li') || select.parentElement;
+        if (!/科室|Department/i.test(hay + String((item && item.innerText) || ''))) return;
+        [...select.options].forEach((option) => add(option.text));
+        const box = item && item.querySelector('.layui-form-select');
+        if (box) {
+          const title = box.querySelector('.layui-select-title, input');
+          if (title && !box.classList.contains('layui-form-selected')) title.click();
+          [...box.querySelectorAll('dd')].forEach((dd) => add(dd.innerText));
+        }
+      });
+    });
+    return { ok: names.length > 0, departments: names, message: names.length ? ('已读取平台科室 ' + names.length + ' 个') : '新增表单中未找到科室下拉' };
   })()`
 }
 
@@ -438,7 +672,7 @@ function buildSubmitCreateFormScript() {
   return `(() => {
     ${PAGE_HELPER_SCRIPT}
     const entries = collectDocs(document, location.href).filter((entry) => entry.doc);
-    const createDocs = entries.filter((entry) => isCreateSrc(entry.src) || Boolean(entry.doc.querySelector('[name="HospitalizationCode"], #HospitalizationCode')));
+    const createDocs = entries.filter((entry) => isCreateSrc(entry.src) || Boolean(entry.doc.querySelector('[name="HospitalizationCode"], #HospitalizationCode, [name="Diagnosis"], #Diagnosis')));
     if (!createDocs.length) return { ok: false, message: '未找到新增表单，无法提交' };
     const doc = createDocs[0].doc;
     const btn = doc.querySelector('button[lay-filter="btnOK"], [lay-submit][lay-filter="btnOK"]')
@@ -476,9 +710,9 @@ function buildRefreshIndexSearchScript(fields, options) {
     const creationTime = ${JSON.stringify(String(fields?.CreationTime || ''))};
     const wideDates = ${JSON.stringify(wideDates)};
     const today = ${JSON.stringify(new Date().toISOString().slice(0, 10))};
-    const entries = collectDocs(document, location.href).filter((entry) => entry.doc && String(entry.src || '').includes('/HospitalizationRecord/Index') && !isCreateSrc(entry.src));
+    const entries = collectDocs(document, location.href).filter((entry) => entry.doc && /\\/Index/i.test(String(entry.src || '')) && !/Home\\/Index/i.test(String(entry.src || '')) && !isCreateSrc(entry.src));
     const doc = (entries[0] && entries[0].doc) || null;
-    if (!doc) return { ok: false, message: '未找到住院病种列表，无法核对提交结果' };
+    if (!doc) return { ok: false, message: '未找到记录列表，无法核对提交结果' };
     const nameInput = doc.querySelector('#txtPatientName') || doc.querySelector('input[name="PatientName"]');
     const startInput = doc.querySelector('#StartDate');
     const endInput = doc.querySelector('#EndDate');
@@ -569,6 +803,7 @@ function buildReadExistingRecordsScript() {
 module.exports = {
   CORE_FIELD_KEYS,
   SUBMIT_TARGETS,
+  RECORD_CATEGORIES,
   FIELD_TARGETS,
   FIELD_NAMES,
   OBSERVE_PAGE_SCRIPT,
@@ -577,6 +812,7 @@ module.exports = {
   getFillableFieldEntries,
   getObservationControls,
   areTargetFieldsFilled,
+  missingTargetFieldValues,
   getFillRecords,
   normalizeHospitalNo,
   recordHospitalNo,
@@ -584,6 +820,7 @@ module.exports = {
   isExistingRecord,
   shouldSubmit,
   isCreateSrc,
+  isIndexSrc,
   getCreateFrame,
   createFrameHasInputs,
   isCreateFormOpen,
@@ -592,9 +829,14 @@ module.exports = {
   withoutSubmitActions,
   summarizeObservation,
   getBuiltinNextAction,
+  resolveRecordCategory,
+  applyMatchedDepartment,
+  shouldSkipTemplateAction,
+  indexMatchesCategory,
   createTemplateAction,
   buildExecuteBrowserActionScript,
   buildFillCreateFormScript,
+  buildReadDepartmentOptionsScript,
   buildSubmitCreateFormScript,
   buildReadSubmitStatusScript,
   buildRefreshIndexSearchScript,

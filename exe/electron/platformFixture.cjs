@@ -11,6 +11,7 @@ const MIME = {
 
 function fixtureRoot() {
   var candidates = [
+    path.join(process.resourcesPath || '', 'scripts', 'fixtures', 'platform'),
     path.join(__dirname, '..', 'scripts', 'fixtures', 'platform'),
     path.join(__dirname, '..', '..', 'scripts', 'fixtures', 'platform'),
   ]

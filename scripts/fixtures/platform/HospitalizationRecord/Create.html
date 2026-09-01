@@ -9,6 +9,12 @@
     label { display: block; margin-bottom: 4px; }
     input, textarea { width: 100%; padding: 6px; }
     button { margin-right: 8px; padding: 8px 16px; }
+    .layui-form-select { position: relative; }
+    .layui-form-select dl { display: none; position: absolute; z-index: 20; background: #fff; border: 1px solid #cbd5e1; width: 100%; max-height: 220px; overflow: auto; margin: 0; padding: 0; }
+    .layui-form-select.layui-form-selected dl { display: block; }
+    .layui-form-select dd { padding: 6px 8px; cursor: pointer; }
+    .layui-form-select dd:hover { background: #e2e8f0; }
+    select[name="Department"] { position: absolute; left: -9999px; height: 1px; width: 1px; }
   </style>
 </head>
 <body>
@@ -31,6 +37,94 @@
       <input name="DiagnosisWestern" placeholder="西医诊断" />
     </div>
     <div class="layui-form-item">
+      <label>所在科室</label>
+      <select name="Department" id="Department">
+        <option value="">请选择</option>
+        <option value="1">通州脑病科一区</option>
+        <option value="2">通州脑病科二区</option>
+        <option value="3">通州脑病科三区</option>
+        <option value="4">通州脑病科五区</option>
+        <option value="5">通州脑病康复科</option>
+        <option value="6">通州心血管一区</option>
+        <option value="7">通州心血管二区</option>
+        <option value="8">通州心脏康复科</option>
+        <option value="9">通州肾病内分泌科一区</option>
+        <option value="10">通州肾病内分泌科二区</option>
+        <option value="11">通州肾病内分泌科三区</option>
+        <option value="12">通州肾病内分泌科四区</option>
+        <option value="13">通州脾胃病科一区</option>
+        <option value="14">通州脾胃病科二区</option>
+        <option value="15">通州呼吸科一区</option>
+        <option value="16">通州呼吸科二区</option>
+        <option value="17">通州针灸科二区</option>
+        <option value="18">通州康复科2</option>
+        <option value="19">通州推拿疼痛科二区</option>
+        <option value="20">通州皮肤科二区</option>
+        <option value="21">通州ICU二区</option>
+        <option value="22">通州NICU</option>
+        <option value="23">通州儿科二区</option>
+        <option value="24">通州耳鼻咽喉头颈外科</option>
+        <option value="25">通州风湿病科</option>
+        <option value="26">通州妇科二区</option>
+        <option value="27">通州骨伤科六区</option>
+        <option value="28">通州甲状腺病科</option>
+        <option value="29">通州男科二区</option>
+        <option value="30">通州普外科三区</option>
+        <option value="31">通州神经外科</option>
+        <option value="32">通州胸外科</option>
+        <option value="33">通州血液科</option>
+        <option value="34">通州肿瘤科</option>
+        <option value="35">通州眼科二区</option>
+        <option value="36">通州周围血管科二区</option>
+        <option value="37">通州老年医学科</option>
+      </select>
+      <div class="layui-form-select" id="dept-select">
+        <div class="layui-select-title">
+          <input id="dept-title" readonly value="请选择" placeholder="请选择" />
+        </div>
+        <dl>
+          <dd>请选择</dd>
+          <dd>通州脑病科一区</dd>
+          <dd>通州脑病科二区</dd>
+          <dd>通州脑病科三区</dd>
+          <dd>通州脑病科五区</dd>
+          <dd>通州脑病康复科</dd>
+          <dd>通州心血管一区</dd>
+          <dd>通州心血管二区</dd>
+          <dd>通州心脏康复科</dd>
+          <dd>通州肾病内分泌科一区</dd>
+          <dd>通州肾病内分泌科二区</dd>
+          <dd>通州肾病内分泌科三区</dd>
+          <dd>通州肾病内分泌科四区</dd>
+          <dd>通州脾胃病科一区</dd>
+          <dd>通州脾胃病科二区</dd>
+          <dd>通州呼吸科一区</dd>
+          <dd>通州呼吸科二区</dd>
+          <dd>通州针灸科二区</dd>
+          <dd>通州康复科2</dd>
+          <dd>通州推拿疼痛科二区</dd>
+          <dd>通州皮肤科二区</dd>
+          <dd>通州ICU二区</dd>
+          <dd>通州NICU</dd>
+          <dd>通州儿科二区</dd>
+          <dd>通州耳鼻咽喉头颈外科</dd>
+          <dd>通州风湿病科</dd>
+          <dd>通州妇科二区</dd>
+          <dd>通州骨伤科六区</dd>
+          <dd>通州甲状腺病科</dd>
+          <dd>通州男科二区</dd>
+          <dd>通州普外科三区</dd>
+          <dd>通州神经外科</dd>
+          <dd>通州胸外科</dd>
+          <dd>通州血液科</dd>
+          <dd>通州肿瘤科</dd>
+          <dd>通州眼科二区</dd>
+          <dd>通州周围血管科二区</dd>
+          <dd>通州老年医学科</dd>
+        </dl>
+      </div>
+    </div>
+    <div class="layui-form-item">
       <label>住院日期</label>
       <input name="CreationTime" placeholder="住院日期" />
     </div>
@@ -42,6 +136,21 @@
     <button type="submit" id="ok-btn">确定</button>
   </form>
   <script>
+    var select = document.getElementById('Department')
+    var box = document.getElementById('dept-select')
+    var title = document.getElementById('dept-title')
+    box.querySelector('.layui-select-title').addEventListener('click', () => {
+      box.classList.toggle('layui-form-selected')
+    })
+    box.querySelectorAll('dd').forEach((dd) => {
+      dd.addEventListener('click', () => {
+        var text = String(dd.innerText || '').trim()
+        title.value = text
+        var option = [...select.options].find((item) => String(item.text || '').trim() === text)
+        select.value = option ? option.value : ''
+        box.classList.remove('layui-form-selected')
+      })
+    })
     document.getElementById('create-form').addEventListener('submit', (event) => {
       event.preventDefault()
       var form = event.target
@@ -51,6 +160,7 @@
         Diagnosis: form.Diagnosis.value,
         DiagnosisWestern: form.DiagnosisWestern.value,
         CreationTime: form.CreationTime.value,
+        Department: form.Department ? form.Department.options[form.Department.selectedIndex] && form.Department.options[form.Department.selectedIndex].text : '',
         Remarks: form.Remarks.value,
       }
       if (window.parent && window.parent !== window) {

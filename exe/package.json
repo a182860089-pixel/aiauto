@@ -6,12 +6,64 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
     "electron:dev": "npm run build && electron electron/main.cjs",
-    "dist:win": "npm run build && electron-builder --win nsis",
+    "dist:win": "npm run build && electron-builder --win",
     "test": "node --test scripts/templateMapping.test.cjs"
   },
   "dependencies": { "exceljs": "^4.4.0", "react": "^19.1.1", "react-dom": "^19.1.1" },
   "devDependencies": { "@types/react": "^19.1.10", "@types/react-dom": "^19.1.7", "@vitejs/plugin-react": "^5.0.0", "electron": "^43.2.0", "electron-builder": "^26.15.3", "typescript": "^5.9.2", "vite": "^7.1.2" },
-  "build": { "appId": "cn.aiauto.case-uploader", "productName": "病例自动传", "directories": { "output": "release" }, "files": ["dist/**/*", "electron/**/*", "templates/**/*", { "from": "../scripts/fixtures", "to": "scripts/fixtures" }], "win": { "target": "nsis", "signAndEditExecutable": false, "artifactName": "${productName}-${version}-Setup.${ext}" } }
+  "build": {
+    "appId": "cn.aiauto.case-uploader",
+    "productName": "病例自动传",
+    "asar": true,
+    "compression": "maximum",
+    "npmRebuild": false,
+    "electronLanguages": ["zh-CN", "zh", "en-US"],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../scripts/fixtures",
+        "to": "scripts/fixtures"
+      }
+    ],
+    "extraFiles": [
+      {
+        "from": "使用说明.txt",
+        "to": "使用说明.txt"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64"]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "病例自动传",
+      "uninstallDisplayName": "病例自动传",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-${version}-安装包.${ext}"
+    }
+  }
 }

@@ -21,8 +21,9 @@ export default defineConfig({
     },
   },
   build: {
+    emptyOutDir: true,
     rollupOptions: {
-      input: 'index.html',
+      input: path.resolve(rootDir, 'index.html'),
     },
   },
 })

@@ -4,7 +4,7 @@ var TEMPLATE_COLUMNS = [
 ]
 
 var RECORD_CATEGORY_OPTIONS = ['住院病种记录', '门诊病种记录', '临床技术记录', '手写大病历', '门诊病历']
-var DEFAULT_DEPARTMENT_OPTIONS = ['通州呼吸科二区', '通州心血管二区', '通州肾病内分泌四区']
+var { PLATFORM_DEPARTMENT_SEED: DEFAULT_DEPARTMENT_OPTIONS } = require('./departments.cjs')
 
 var TEMPLATE_HEADER_ALIASES = {
   记录类别: ['记录类别', '记录类型'], 所在科室: ['所在科室', '科室', '就诊科室', '入院科室'],

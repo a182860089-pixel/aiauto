@@ -12,12 +12,32 @@ import {
   type UploadedImageItem,
 } from './ocrBrowser'
 import { exportClassifiedRowsToExcel } from './ocrExcel'
-import { selectInpatientFillRecords } from './platformFields'
+import { selectPlatformFillRecords } from './platformFields'
 import { mergeDepartmentOptions, rememberDepartment } from './templateMapping'
+import {
+  loadStoredPlatformDepartments,
+  saveStoredPlatformDepartments,
+  matchDepartment,
+} from './departments'
 
 var STORAGE_KEY = 'ocr-web-api-key'
 var STORAGE_MODEL = 'ocr-web-model'
 var STORAGE_DEPT = 'ocr-web-default-dept'
+var STORAGE_LOGIN = 'platform-login-name'
+var STORAGE_PASSWORD = 'platform-login-password'
+
+function loadSessionPassword() {
+  try { return sessionStorage.getItem(STORAGE_PASSWORD) || '' } catch { return '' }
+}
+
+function saveSessionPassword(value: string) {
+  try { sessionStorage.setItem(STORAGE_PASSWORD, value) } catch {}
+}
+
+function resolveStoredDepartment(stored: string) {
+  var options = mergeDepartmentOptions([], loadStoredPlatformDepartments())
+  return matchDepartment(stored, options) || (options.includes(stored) ? stored : '')
+}
 
 /** 读取本地文件为 Data URL */
 function readFileAsDataUrl(file: File) {
@@ -39,13 +59,18 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
   // 基础配置与持久化
   var [apiKey, setApiKey] = useState(() => localStorage.getItem(STORAGE_KEY) || '')
   var [ocrModel, setOcrModel] = useState(() => localStorage.getItem(STORAGE_MODEL) || DEFAULT_OCR_MODEL)
-  var [defaultDept, setDefaultDept] = useState(() => localStorage.getItem(STORAGE_DEPT) || '通州呼吸科二区')
+  var [defaultDept, setDefaultDept] = useState(() => {
+    var matched = resolveStoredDepartment(localStorage.getItem(STORAGE_DEPT) || '')
+    if (matched) localStorage.setItem(STORAGE_DEPT, matched)
+    return matched
+  })
   var [customDepartments, setCustomDepartments] = useState<string[]>([])
+  var [platformDepartments, setPlatformDepartments] = useState<string[]>(() => loadStoredPlatformDepartments())
   var [templateName, setTemplateName] = useState('使用标准 16 列五类合并格式')
   var [templateDataUrl, setTemplateDataUrl] = useState('')
   var [desktopKeyCount, setDesktopKeyCount] = useState(0)
-  var [loginName, setLoginName] = useState('')
-  var [loginPassword, setLoginPassword] = useState('')
+  var [loginName, setLoginName] = useState(() => localStorage.getItem(STORAGE_LOGIN) || '')
+  var [loginPassword, setLoginPassword] = useState(() => loadSessionPassword())
   var [browserApiKey, setBrowserApiKey] = useState('')
   var [browserBaseUrl, setBrowserBaseUrl] = useState('https://api.aigo0.com')
   var [browserModel, setBrowserModel] = useState('gpt-5.5')
@@ -54,6 +79,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
   var [automationLogs, setAutomationLogs] = useState<Array<{ message: string; time: string }>>([])
   var isDesktop = typeof window !== 'undefined' && Boolean(window.desktopApi)
   var showPlatformControls = isDesktop && !embedded
+  var showDeptSync = isDesktop
 
   // 设置面板折叠状态（默认有 Key 时折叠，无 Key 时展开）
   var savedKeysCount = useMemo(
@@ -78,7 +104,41 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
   var [elapsed, setElapsed] = useState(0)
   var [status, setStatus] = useState('就绪：添加图片后点击开始批量识别')
 
-  var departmentOptions = useMemo(() => mergeDepartmentOptions(customDepartments), [customDepartments])
+  var departmentOptions = useMemo(
+    () => mergeDepartmentOptions(customDepartments, platformDepartments),
+    [customDepartments, platformDepartments],
+  )
+
+  useEffect(() => {
+    if (!departmentOptions.length) return
+    setBatchDept((current) => {
+      if (!current || departmentOptions.includes(current)) return current
+      return matchDepartment(current, departmentOptions) || ''
+    })
+    setAllRows((current) => current.map((row) => {
+      if (!row.department || departmentOptions.includes(row.department)) return row
+      var matched = matchDepartment(row.department, departmentOptions)
+      return matched ? { ...row, department: matched } : row
+    }))
+  }, [departmentOptions])
+
+  var applyPlatformDepartments = (departments: string[]) => {
+    var next = saveStoredPlatformDepartments(departments)
+    setPlatformDepartments(next)
+    if (!next.length) return next
+    var remap = (value: string) => matchDepartment(value, next) || value
+    setDefaultDept((current) => {
+      var matched = remap(current)
+      if (matched) localStorage.setItem(STORAGE_DEPT, matched)
+      return matched
+    })
+    setBatchDept((current) => remap(current))
+    setAllRows((current) => current.map((row) => {
+      var matched = matchDepartment(row.department, next)
+      return matched && matched !== row.department ? { ...row, department: matched } : row
+    }))
+    return next
+  }
 
   // 启动时尝试同步本地 Electron safeStorage / localStorage
   useEffect(() => {
@@ -88,9 +148,17 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
       setDesktopKeyCount(settings.keyCount || 0)
       if (settings.keyCount > 0) setIsSettingsOpen(false)
     }).catch(() => {})
-    return window.desktopApi.onAutomationLog((entry) => {
+    var offLog = window.desktopApi.onAutomationLog((entry) => {
       setAutomationLogs((current) => [...current.slice(-39), entry])
     })
+    var offDepts = window.desktopApi.onPlatformDepartments?.((payload) => {
+      var next = applyPlatformDepartments(payload.departments || [])
+      setStatus(`已同步平台科室 ${next.length} 个，可在下拉中选择`)
+    })
+    return () => {
+      offLog?.()
+      offDepts?.()
+    }
   }, [])
 
   useEffect(() => {
@@ -161,7 +229,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
       {
         id: 'demo-1',
         category: '住院病种记录',
-        department: defaultDept || '通州呼吸科二区',
+        department: defaultDept || '脑病科一区',
         patientName: '杨旭',
         recordNo: '376813',
         hospitalNo: '376813',
@@ -187,7 +255,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
       {
         id: 'demo-2',
         category: '门诊病种记录',
-        department: defaultDept || '通州呼吸科二区',
+        department: defaultDept || '脑病科一区',
         patientName: '王建国',
         recordNo: 'MZ-882103',
         hospitalNo: '',
@@ -213,7 +281,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
       {
         id: 'demo-3',
         category: '临床技术记录',
-        department: defaultDept || '通州呼吸科二区',
+        department: defaultDept || '脑病科一区',
         patientName: '李秀英',
         recordNo: '381920',
         hospitalNo: '381920',
@@ -239,7 +307,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
       {
         id: 'demo-4',
         category: '手写大病历',
-        department: defaultDept || '通州呼吸科二区',
+        department: defaultDept || '脑病科一区',
         patientName: '张海波',
         recordNo: '379011',
         hospitalNo: '379011',
@@ -265,7 +333,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
       {
         id: 'demo-5',
         category: '门诊病历',
-        department: defaultDept || '通州呼吸科二区',
+        department: defaultDept || '脑病科一区',
         patientName: '陈小明',
         recordNo: 'MZ-90124',
         hospitalNo: '',
@@ -346,7 +414,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
         mergedRows = Array.from(existingMap.values())
         return mergedRows
       })
-      var fillableCount = selectInpatientFillRecords(mergedRows).length
+      var fillableCount = selectPlatformFillRecords(mergedRows).length
       if (embedded) {
         setStatus(
           fillableCount
@@ -449,16 +517,16 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
   var fillBrowser = async (rows?: ClassifiedPatientRow[]) => {
     if (!window.desktopApi) return setStatus('当前不是桌面端，请使用 EXE 运行')
     var sourceRows = Array.isArray(rows) ? rows : allRows
-    var nextRecords = selectInpatientFillRecords(sourceRows)
+    var nextRecords = selectPlatformFillRecords(sourceRows)
     var login = {
       loginName: loginName || (usePlatformFixture ? 'fixture' : ''),
       loginPassword: loginPassword || (usePlatformFixture ? 'fixture' : ''),
     }
     if (!login.loginName || !login.loginPassword) return setStatus('请先填写平台账号和密码')
     if (!nextRecords.length) {
-      return setStatus('请先勾选要填入的行')
+      return setStatus('请先勾选要填入的行，并确认记录类别不是未分类')
     }
-    setStatus(`正在打开平台并填入 ${nextRecords.length} 条住院病种记录…`)
+    setStatus(`正在打开平台并按 Excel/识别类别填入 ${nextRecords.length} 条记录…`)
     try {
       var result = await window.desktopApi.fillBrowser({
         credentials: login,
@@ -473,6 +541,32 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
       setStatus(String(result))
     } catch (error) {
       setStatus(error instanceof Error ? error.message : '浏览器自动化失败')
+    }
+  }
+
+  var syncPlatformDepartments = async () => {
+    if (!window.desktopApi?.syncPlatformDepartments) return setStatus('当前不是桌面端，请使用 EXE 运行')
+    var login = {
+      loginName: loginName || (usePlatformFixture ? 'fixture' : ''),
+      loginPassword: loginPassword || (usePlatformFixture ? 'fixture' : ''),
+    }
+    if (!login.loginName || !login.loginPassword) {
+      if (embedded && onGoToPlatform) onGoToPlatform()
+      return setStatus('请先填写平台账号和密码，再点「从平台同步全部科室」')
+    }
+    setBusy(true)
+    setStatus('正在登录平台并读取「所在科室」下拉全部选项…')
+    try {
+      var result = await window.desktopApi.syncPlatformDepartments({
+        credentials: login,
+        useFixture: usePlatformFixture,
+      })
+      var next = applyPlatformDepartments(result.departments || [])
+      setStatus(result.message || `已同步平台科室 ${next.length} 个`)
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : '同步科室失败')
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -661,22 +755,61 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
                     />
                   </label>
                   <label className="field-block">
-                    <span className="field-label">默认归属科室</span>
-                    <input
-                      list="default-dept-options"
+                    <span className="field-label">默认归属科室（{departmentOptions.length} 个平台科室）</span>
+                    <select
                       value={defaultDept}
                       onChange={(e) => {
                         setDefaultDept(e.target.value)
                         localStorage.setItem(STORAGE_DEPT, e.target.value)
                       }}
-                    />
-                    <datalist id="default-dept-options">
+                    >
+                      <option value="">请选择平台科室</option>
+                      {defaultDept && !departmentOptions.includes(defaultDept) ? (
+                        <option value={defaultDept}>{defaultDept}</option>
+                      ) : null}
                       {departmentOptions.map((opt) => (
-                        <option key={opt} value={opt} />
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
                       ))}
-                    </datalist>
+                    </select>
+                    {showDeptSync ? (
+                      <button type="button" className="secondary-btn" onClick={syncPlatformDepartments} disabled={busy} style={{ marginTop: 8 }}>
+                        {busy ? '正在同步科室…' : `从平台同步全部科室（当前 ${departmentOptions.length}）`}
+                      </button>
+                    ) : null}
                   </label>
                 </div>
+
+                {isDesktop && embedded ? (
+                  <div className="field-grid-2">
+                    <label className="field-block">
+                      <span className="field-label">平台账号</span>
+                      <input
+                        value={loginName}
+                        onChange={(e) => {
+                          setLoginName(e.target.value)
+                          localStorage.setItem(STORAGE_LOGIN, e.target.value)
+                        }}
+                        placeholder={usePlatformFixture ? '夹具可用 fixture' : '平台账号'}
+                        autoComplete="username"
+                      />
+                    </label>
+                    <label className="field-block">
+                      <span className="field-label">平台密码（仅本次会话，用于同步科室）</span>
+                      <input
+                        type="password"
+                        value={loginPassword}
+                        onChange={(e) => {
+                          setLoginPassword(e.target.value)
+                          saveSessionPassword(e.target.value)
+                        }}
+                        placeholder={usePlatformFixture ? '夹具可用 fixture' : '填写后可在本页同步全部科室'}
+                        autoComplete="current-password"
+                      />
+                    </label>
+                  </div>
+                ) : null}
 
                 {showPlatformControls ? (
                   <div className="field-grid-2">
@@ -744,13 +877,19 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
                 <div className="platform-login-row">
                   <input
                     value={loginName}
-                    onChange={(e) => setLoginName(e.target.value)}
+                    onChange={(e) => {
+                      setLoginName(e.target.value)
+                      localStorage.setItem(STORAGE_LOGIN, e.target.value)
+                    }}
                     placeholder={usePlatformFixture ? '账号（夹具可用 fixture）' : '平台账号'}
                   />
                   <input
                     type="password"
                     value={loginPassword}
-                    onChange={(e) => setLoginPassword(e.target.value)}
+                    onChange={(e) => {
+                      setLoginPassword(e.target.value)
+                      saveSessionPassword(e.target.value)
+                    }}
                     placeholder={usePlatformFixture ? '密码（夹具可用 fixture）' : '平台密码'}
                   />
                 </div>
@@ -882,20 +1021,25 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
 
                 {/* 批量科室 */}
                 <div className="batch-item">
-                  <input
-                    list="batch-dept-options"
-                    value={batchDept}
-                    onChange={(e) => setBatchDept(e.target.value)}
-                    placeholder="批量指定科室…"
-                  />
-                  <datalist id="batch-dept-options">
+                  <select value={batchDept} onChange={(e) => setBatchDept(e.target.value)}>
+                    <option value="">批量指定科室（{departmentOptions.length}）…</option>
+                    {batchDept && !departmentOptions.includes(batchDept) ? (
+                      <option value={batchDept}>{batchDept}</option>
+                    ) : null}
                     {departmentOptions.map((opt) => (
-                      <option key={opt} value={opt} />
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
                     ))}
-                  </datalist>
+                  </select>
                   <button type="button" className="mini-action-btn" onClick={applyBatchDept}>
                     应用
                   </button>
+                  {showDeptSync ? (
+                    <button type="button" className="mini-action-btn ghost" onClick={syncPlatformDepartments} disabled={busy}>
+                      {busy ? '同步中' : '同步平台'}
+                    </button>
+                  ) : null}
                 </div>
 
                 {/* 批量初复诊/主管参观 */}
@@ -973,11 +1117,21 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
 
                         {/* 所在科室 */}
                         <td>
-                          <input
-                            className="cell-input"
+                          <select
+                            className="cell-select"
                             value={row.department}
                             onChange={(e) => updateRowField(row.id, 'department', e.target.value)}
-                          />
+                          >
+                            <option value="">请选择科室</option>
+                            {row.department && !departmentOptions.includes(row.department) ? (
+                              <option value={row.department}>{row.department}</option>
+                            ) : null}
+                            {departmentOptions.map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
                         </td>
 
                         {/* 患者姓名 */}

@@ -245,7 +245,7 @@ export function cleanDateText(text: string): string {
 export function inferPatientRow(
   source: Record<string, string>,
   sourceImage: string,
-  defaultDepartment: string = '通州呼吸科二区',
+  defaultDepartment: string = '',
   index: number = 0,
 ): ClassifiedPatientRow {
   var id = `row-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`

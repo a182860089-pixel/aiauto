@@ -11,10 +11,15 @@ export type PlatformRecordFields = {
   Remarks: string
 }
 
+export type PlatformFillCategory = PatientCategory | '住院病种记录'
+
 export type PlatformFillRecord = {
   id: string
-  category: '住院病种记录'
-  fields: PlatformRecordFields
+  category: PlatformFillCategory
+  fields: PlatformRecordFields & {
+    RecordCategory?: string
+    OperationName?: string
+  }
 }
 
 const PLACEHOLDER_NAMES = new Set(['未命名患者', '未知', '无名'])
@@ -23,34 +28,80 @@ function text(value: unknown) {
   return String(value ?? '').trim()
 }
 
+function resolveFillCategory(row: ClassifiedPatientRow, forceInpatient = false): Exclude<PatientCategory, '未分类'> {
+  if (forceInpatient) return '住院病种记录'
+  if (row.category && row.category !== '未分类') return row.category
+  return '住院病种记录'
+}
+
+function dateForCategory(row: ClassifiedPatientRow, category: string) {
+  if (category === '住院病种记录') return text(row.admissionDate || row.date || row.generalDate)
+  if (category === '门诊病种记录') return text(row.visitDate || row.date || row.generalDate)
+  if (category === '临床技术记录') return text(row.operationDate || row.date || row.generalDate)
+  return text(row.date || row.generalDate || row.admissionDate || row.visitDate)
+}
+
+function visitRoleForCategory(row: ClassifiedPatientRow, category: string) {
+  if (category === '住院病种记录') return row.visitType === '参观' ? '参观' : '主管'
+  if (category === '门诊病种记录') return row.visitType === '复诊' ? '复诊' : '初诊'
+  return text(row.visitType)
+}
+
+function hospitalNoForCategory(row: ClassifiedPatientRow, category: string) {
+  if (category === '门诊病种记录' || category === '门诊病历') {
+    return text(row.outpatientNo || row.medicalRecordNo || row.recordNo || row.hospitalNo)
+  }
+  return text(row.hospitalNo || row.recordNo || row.outpatientNo || row.medicalRecordNo)
+}
+
 /**
- * 将住院病种行转换成平台新增表单字段。
+ * 将一行转换成平台新增表单字段，按记录类别选择日期、号码和角色。
  */
-export function toInpatientPlatformFields(row: ClassifiedPatientRow): PlatformRecordFields | null {
-  const patientName = text(row.patientName)
-  const hospitalNo = text(row.hospitalNo || row.recordNo || row.outpatientNo)
+export function toPlatformFields(row: ClassifiedPatientRow, forceInpatient = false): PlatformFillRecord['fields'] {
+  const category = resolveFillCategory(row, forceInpatient)
   return {
-    PatientName: patientName,
-    HospitalNo: hospitalNo,
+    PatientName: text(row.patientName),
+    HospitalNo: hospitalNoForCategory(row, category),
     Diagnosis: text(row.tcmDiag),
     DiagnosisWestern: text(row.wmDiag),
-    CreationTime: text(row.admissionDate || row.date),
+    CreationTime: dateForCategory(row, category),
     Department: text(row.department),
-    VisitRole: text(row.visitType) || '主管',
+    VisitRole: visitRoleForCategory(row, category),
     Remarks: text(row.remarks),
+    OperationName: text(row.operationName),
+    RecordCategory: category,
   }
 }
 
 /**
- * 只接受已勾选行，供登录后逐条添加并确定。全部可录入，不因类别或缺字段跳过。
+ * 将住院病种行转换成平台新增表单字段。
  */
-export function selectInpatientFillRecords(rows: ClassifiedPatientRow[]): PlatformFillRecord[] {
+export function toInpatientPlatformFields(row: ClassifiedPatientRow): PlatformRecordFields | null {
+  return toPlatformFields(row, true)
+}
+
+export type SelectFillOptions = {
+  forceInpatient?: boolean
+}
+
+/**
+ * 只接受已勾选行。默认保留 Excel/识别页的记录类别；forceInpatient 时全部按住院病种填。
+ */
+export function selectPlatformFillRecords(rows: ClassifiedPatientRow[], options: SelectFillOptions = {}): PlatformFillRecord[] {
   return rows.flatMap((row) => {
     if (!row.checked) return []
-    const fields = toInpatientPlatformFields(row)
+    const category = resolveFillCategory(row, options.forceInpatient)
+    const fields = toPlatformFields(row, options.forceInpatient)
     if (!fields) return []
-    return [{ id: row.id, category: '住院病种记录' as const, fields }]
+    return [{ id: row.id, category, fields }]
   })
+}
+
+/**
+ * 只接受已勾选行，供登录后逐条添加并确定。全部按住院病种填入。
+ */
+export function selectInpatientFillRecords(rows: ClassifiedPatientRow[]): PlatformFillRecord[] {
+  return selectPlatformFillRecords(rows, { forceInpatient: true })
 }
 
 export function describeSkippedInpatientRows(rows: ClassifiedPatientRow[]) {

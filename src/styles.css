@@ -694,6 +694,13 @@ button {
   font-weight: 500;
 }
 .mini-action-btn:hover { background: #1d4ed8; }
+.mini-action-btn.ghost {
+  background: #fff;
+  color: #1d4ed8;
+  border: 1px solid #93c5fd;
+}
+.mini-action-btn.ghost:hover { background: #eff6ff; }
+.mini-action-btn:disabled { opacity: 0.6; }
 
 /* 表格主体 */
 .table-responsive-wrapper {

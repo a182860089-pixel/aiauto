@@ -355,7 +355,7 @@ export async function recognizeAndClassifyImage(
   imageItem: UploadedImageItem,
   apiKeys: string | string[],
   model: string = DEFAULT_OCR_MODEL,
-  defaultDepartment: string = '通州呼吸科二区',
+  defaultDepartment: string = '',
 ): Promise<ClassifiedPatientRow[]> {
   var columns: string[]
   var rows: string[][]
@@ -402,7 +402,7 @@ export async function processBatchImages(
   items: UploadedImageItem[],
   apiKeys: string | string[],
   model: string = DEFAULT_OCR_MODEL,
-  defaultDepartment: string = '通州呼吸科二区',
+  defaultDepartment: string = '',
   onProgress?: (updatedItem: UploadedImageItem, allItems: UploadedImageItem[]) => void,
 ): Promise<ClassifiedPatientRow[]> {
   var keys = normalizeApiKeys(apiKeys)

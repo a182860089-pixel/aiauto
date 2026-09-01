@@ -8,9 +8,15 @@ export type TemplateMappingSummary = {
 
 export type TemplateOverrides = Record<string, string>
 
+import {
+  PLATFORM_DEPARTMENT_SEED,
+  mergeDepartmentOptions as mergeDepartments,
+  rememberDepartment as rememberCustomDepartment,
+} from './departments'
+
 export const RECORD_CATEGORY_OPTIONS = ['住院病种记录', '门诊病种记录', '临床技术记录', '手写大病历', '门诊病历']
 
-export const DEFAULT_DEPARTMENT_OPTIONS = ['通州呼吸科二区', '通州心血管二区', '通州肾病内分泌四区']
+export const DEFAULT_DEPARTMENT_OPTIONS = PLATFORM_DEPARTMENT_SEED
 
 export const TEMPLATE_COLUMNS = [
   '记录类别', '所在科室', '病人姓名', '住院号', '中医诊断', '西医诊断', '主管/参观',
@@ -89,25 +95,17 @@ export function requireManualOverrides(overrides?: TemplateOverrides) {
 }
 
 /**
- * 合并默认科室和手输过的科室，供下拉使用。
- * @param customDepartments 用户手输过的科室
- * @return 去重后的科室列表
+ * 合并平台同步科室、默认科室和手输科室，供下拉使用。
  */
-export function mergeDepartmentOptions(customDepartments: string[] = []) {
-  var extras = customDepartments.map((item) => item.trim()).filter((item) => item && !DEFAULT_DEPARTMENT_OPTIONS.includes(item))
-  return [...DEFAULT_DEPARTMENT_OPTIONS, ...extras]
+export function mergeDepartmentOptions(customDepartments: string[] = [], platformDepartments: string[] = []) {
+  return mergeDepartments(customDepartments, platformDepartments)
 }
 
 /**
  * 把新科室记入手输列表，输入过程中的半成品不保存。
- * @param current 已保存的手输科室
- * @param next 当前输入
- * @return 更新后的列表
  */
 export function rememberDepartment(current: string[], next: string) {
-  var value = String(next || '').trim()
-  if (!value || current.includes(value) || DEFAULT_DEPARTMENT_OPTIONS.includes(value)) return current
-  return [...current, value]
+  return rememberCustomDepartment(current, next)
 }
 
 /**

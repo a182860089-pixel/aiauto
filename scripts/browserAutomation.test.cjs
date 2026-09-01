@@ -9,6 +9,8 @@ const {
   shouldSubmit,
   dedupeFillRecords,
   isExistingRecord,
+  applyMatchedDepartment,
+  shouldSkipTemplateAction,
 } = require('../electron/browserAutomation.cjs')
 
 const fields = {
@@ -85,6 +87,26 @@ test('browserAutomation: 新增表单按中文标签填写并在填完后由程�
   assert.equal(next.target, '病人姓名')
   assert.equal(next.value, '杨旭')
   assert.equal(areTargetFieldsFilled(filledForm, fields), true)
+  assert.equal(areTargetFieldsFilled({
+    url: 'https://gp.itcm.cn/OutpatientRecord/Index',
+    main: { text: '', controls: [] },
+    frames: [{
+      src: '/OutpatientRecord/Create',
+      controls: [
+        { text: '病人姓名', value: '黄良明' },
+        { text: '病历号', value: '99139647467' },
+        { text: '中医诊断', value: '瘀热阻络证' },
+        { text: '西医诊断', value: '肺诊断性影像异常' },
+        { text: '就诊日期', value: '2026/07/17' },
+      ],
+    }],
+  }, {
+    PatientName: '黄良明',
+    HospitalNo: '99139647467',
+    Diagnosis: '瘀热阻络证',
+    DiagnosisWestern: '肺诊断性影像异常',
+    CreationTime: '2026-07-17',
+  }), true)
   assert.equal(getBuiltinNextAction(filledForm, fields).action, 'done')
   assert.deepEqual(withoutSubmitActions([{ action: 'click', target: '确定' }, { action: 'click', target: '添加' }]), [{ action: 'click', target: '添加' }])
   assert.equal(shouldSubmit({}), true)
@@ -214,4 +236,51 @@ test('browserAutomation: 进入列表后先核对重复，不立刻点添加', (
   assert.equal(getBuiltinNextAction(indexPage, fields, { stopAtIndex: true }).action, 'done')
   assert.notEqual(getBuiltinNextAction(indexPage, fields, { stopAtIndex: true }).target, '添加')
   assert.equal(getBuiltinNextAction(indexPage, fields).target, '添加')
+})
+
+test('browserAutomation: 通州科室名匹配平台下拉', () => {
+  const applied = applyMatchedDepartment({ Department: '通州呼吸科二区', PatientName: '杨旭' }, ['呼吸科一区', '呼吸科二区', '脑病科一区'])
+  assert.equal(applied.fields.Department, '呼吸科二区')
+  assert.equal(applied.matched, '呼吸科二区')
+  assert.equal(applied.wanted, '通州呼吸科二区')
+  const unmatched = applyMatchedDepartment({ Department: '通州针灸科二区' }, ['呼吸科一区', '脑病科一区'])
+  assert.equal(unmatched.fields.Department, '通州针灸科二区')
+  assert.equal(unmatched.matched, '')
+  const wrongWard = applyMatchedDepartment({ Department: '通州心血管二区' }, ['通州心血管二区', '心血管一区', '脑病科一区'])
+  assert.equal(wrongWard.matched, '通州心血管二区')
+  assert.equal(wrongWard.fields.Department, '通州心血管二区')
+  const wrongWardOnly = applyMatchedDepartment({ Department: '呼吸科二区' }, ['呼吸科一区', '脑病科一区'])
+  assert.equal(wrongWardOnly.matched, '')
+  assert.equal(wrongWardOnly.fields.Department, '呼吸科二区')
+  const mixed = applyMatchedDepartment({ Department: '通州心血管二区' }, ['通州心血管二区', '心血管一区', '心血管二区', '脑病科一区'])
+  assert.equal(mixed.matched, '通州心血管二区')
+  assert.equal(mixed.fields.Department, '通州心血管二区')
+  const platformTongzhou = applyMatchedDepartment({ Department: '呼吸科二区' }, ['通州呼吸科一区', '通州呼吸科二区', '通州脑病科一区'])
+  assert.equal(platformTongzhou.matched, '通州呼吸科二区')
+  assert.equal(platformTongzhou.fields.Department, '通州呼吸科二区')
+})
+
+test('browserAutomation: 按记录类别进入对应菜单', () => {
+  const records = getFillRecords({
+    records: [{
+      id: 'ocr-mz',
+      category: '门诊病种记录',
+      fields: { PatientName: '王建国', HospitalNo: 'MZ-882103', Diagnosis: '眩晕', RecordCategory: '门诊病种记录' },
+    }],
+  })
+  assert.equal(records[0].category, '门诊病种记录')
+  const home = {
+    url: 'http://127.0.0.1/index.html',
+    main: { text: '门诊病种记录 住院病种记录', controls: [{ text: '门诊病种记录', value: '' }, { text: '住院病种记录', value: '' }] },
+    frames: [],
+  }
+  assert.equal(getBuiltinNextAction(home, records[0].fields, { category: '门诊病种记录' }).target, '门诊病种记录')
+})
+
+test('browserAutomation: 模板回放跳过类别菜单和科室填入', () => {
+  assert.equal(shouldSkipTemplateAction({ action: 'click', target: '住院病种记录' }), true)
+  assert.equal(shouldSkipTemplateAction({ action: 'click', target: '门诊病种记录' }), true)
+  assert.equal(shouldSkipTemplateAction({ action: 'fill', target: '所在科室', fieldName: 'Department' }), true)
+  assert.equal(shouldSkipTemplateAction({ action: 'fill', target: '病人姓名', fieldName: 'PatientName' }), false)
+  assert.equal(shouldSkipTemplateAction({ action: 'click', target: '添加' }), false)
 })

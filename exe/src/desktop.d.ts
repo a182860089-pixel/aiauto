@@ -38,14 +38,20 @@ interface DesktopApi {
     baseUrl: string
     model: string
     fields?: Record<string, string>
-    records?: Array<{ id: string; fields: Record<string, string> }>
+    records?: Array<{ id: string; category?: string; fields: Record<string, string> }>
     submit?: boolean
     useFixture?: boolean
     skipModel?: boolean
     platformOrigin?: string
   }): Promise<string>
+  syncPlatformDepartments(payload: {
+    credentials: { loginName: string; loginPassword: string }
+    useFixture?: boolean
+    platformOrigin?: string
+  }): Promise<{ departments: string[]; count: number; message: string }>
   clearBrowserTemplate(): Promise<string>
   onAutomationLog(callback: (payload: { message: string; time: string }) => void): () => void
+  onPlatformDepartments(callback: (payload: { departments: string[] }) => void): () => void
 
   // 卡密与一机一码授权
   getMachineId(): Promise<string>

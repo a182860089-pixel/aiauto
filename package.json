@@ -15,7 +15,7 @@
     "test:mapping": "node --test scripts/templateMapping.test.cjs",
     "test:excel": "node --test scripts/excelExporter.test.cjs",
     "test:classifier": "node --test scripts/smartClassifier.test.cjs",
-    "test:platform": "node --test scripts/platformFields.test.cjs scripts/browserAutomation.test.cjs scripts/platform-fixture.test.cjs",
+    "test:platform": "node --test scripts/departments.test.cjs scripts/platformFields.test.cjs scripts/browserAutomation.test.cjs scripts/platform-fixture.test.cjs",
     "test:fixture": "node scripts/run-fixture-test.cjs",
     "test:backend": "npm run build:backend && node --test scripts/backend.test.cjs",
     "electron:dev": "npm run build && electron electron/main.cjs",

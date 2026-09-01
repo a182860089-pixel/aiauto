@@ -4,18 +4,18 @@ var TEMPLATE_COLUMNS = [
 ]
 
 var RECORD_CATEGORY_OPTIONS = ['住院病种记录', '门诊病种记录', '临床技术记录', '手写大病历', '门诊病历']
-var DEFAULT_DEPARTMENT_OPTIONS = ['通州呼吸科二区', '通州心血管二区', '通州肾病内分泌四区']
+var { PLATFORM_DEPARTMENT_SEED: DEFAULT_DEPARTMENT_OPTIONS } = require('./departments.cjs')
 
 var TEMPLATE_HEADER_ALIASES = {
   记录类别: ['记录类别', '记录类型'], 所在科室: ['所在科室', '科室', '就诊科室', '入院科室'],
-  中医诊断: ['中医诊断', '中医诊', '中医病名', '中医诊断病名'],
+  病人姓名: ['病人姓名', '患者姓名', '姓名', '患者', 'patientName', 'patient_name'], 住院号: ['住院号', 'hospitalNo'], 中医诊断: ['中医诊断', '中医诊', '中医病名', '中医诊断病名'],
   西医诊断: ['西医诊断', '西医诊', '西医病名', '西医诊断病名'], '主管/参观': ['主管/参观'], 住院日期: ['住院日期', '入院日期', 'admissionDate'],
   就诊日期: ['就诊日期', 'visitDate'], '初诊/复诊': ['初诊/复诊', '初诊复诊'], 病历号: ['病历号', 'medicalRecordNo'],
   操作日期: ['操作日期', 'operationDate'], 操作名称: ['操作名称', 'operationName'], 日期: ['日期'], 备注: ['备注', 'remarks'], 图片文件: ['图片文件', 'imageFile'],
 }
 
 function normalizeHeader(value) {
-  return String(value == null ? '' : value).replace(/[\s　]/g, '').toLowerCase()
+  return String(value == null ? '' : value).replace(/[\s　:_：/\\()（）\[\]【】.-]/g, '').toLowerCase()
 }
 
 function toRowObject(row, columns) {
