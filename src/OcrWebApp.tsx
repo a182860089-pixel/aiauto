@@ -1007,7 +1007,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
                                         recordNo: val,
                                         hospitalNo: r.category === '住院病种记录' ? val : r.hospitalNo,
                                         outpatientNo: r.category === '门诊病种记录' ? val : r.outpatientNo,
-                                        medicalRecordNo: val,
+                                        medicalRecordNo: r.category === '住院病种记录' || r.category === '门诊病种记录' ? r.medicalRecordNo : val,
                                       }
                                     : r,
                                 ),
@@ -1021,7 +1021,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
                           <input
                             className="cell-input diag-input tcm"
                             value={row.tcmDiag}
-                            placeholder="如: 颈椎病:风寒阻络"
+                            placeholder="图片未识别时保持空白"
                             onChange={(e) => updateRowField(row.id, 'tcmDiag', e.target.value)}
                           />
                         </td>
@@ -1031,7 +1031,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
                           <input
                             className="cell-input diag-input wm"
                             value={row.wmDiag}
-                            placeholder="如: 高血压"
+                            placeholder="图片未识别时保持空白"
                             onChange={(e) => updateRowField(row.id, 'wmDiag', e.target.value)}
                           />
                         </td>

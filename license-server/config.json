@@ -1,0 +1,6 @@
+{
+  "port": 3000,
+  "adminPassword": "admin",
+  "secretKey": "change_this_to_your_secure_random_key_7788",
+  "appName": "病例自动传-卡密授权中心"
+}

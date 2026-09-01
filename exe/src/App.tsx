@@ -63,6 +63,7 @@ export default function App() {
       setOcrModel(settings.model)
       setOcrSettingsStatus(settings.keyCount > 0 ? `已加载 ${settings.keyCount} 个本机密钥` : '尚未保存 OCR 密钥')
     }).catch(() => setOcrSettingsStatus('无法读取本机 OCR 设置'))
+
     return window.desktopApi.onAutomationLog((entry) => setAutomationLogs((current) => [...current.slice(-39), entry]))
   }, [])
 
@@ -109,6 +110,9 @@ export default function App() {
     return { 记录类别: recordCategory.trim(), 所在科室: department.trim() }
   }
 
+  /** 卡密功能已关闭，识别/导出不再拦截。 */
+  const checkLicensedOrPrompt = () => true
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     setUploadedName(file ? file.name : '未选择文件')
@@ -146,6 +150,7 @@ export default function App() {
   }
 
   const recognizeImage = async () => {
+    if (!checkLicensedOrPrompt()) return
     const input = document.querySelector<HTMLInputElement>('#case-file')
     const file = input?.files?.[0]
     if (!file) return setStatus('请先选择病例图片')
@@ -161,11 +166,13 @@ export default function App() {
       setSelectedIndexes((result.table?.rows || []).map((_, index) => index))
       setStatus(result.table?.rows?.length ? `OCR 完成，已识别 ${result.table.rows.length} 行，请勾选后指定类别再导出` : (nextFields.length ? `OCR 完成，已识别 ${nextFields.length} 个字段，请核对并选择` : 'OCR 完成，但没有识别到可用字段'))
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'OCR 失败')
+      const msg = error instanceof Error ? error.message : 'OCR 失败'
+      setStatus(msg)
     }
   }
 
   const exportOcrExcel = async () => {
+    if (!checkLicensedOrPrompt()) return
     if (!window.desktopApi) return setStatus('当前不是 Electron 环境，请使用 EXE 运行')
     if (!ocrResult) return setStatus('请先完成图片 OCR')
     if (!selectedIndexes.length) return setStatus('请先勾选要写入 Excel 的行')
@@ -185,11 +192,13 @@ export default function App() {
         setStatus(`Excel 已导出：${result.outputPath}；新增 ${result.rowCount || 0} 行，匹配 ${matched} 列，忽略 ${ignored} 列`)
       }
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Excel 导出失败')
+      const msg = error instanceof Error ? error.message : 'Excel 导出失败'
+      setStatus(msg)
     }
   }
 
   const fillBrowser = async () => {
+    if (!checkLicensedOrPrompt()) return
     if (!window.desktopApi) return setStatus('当前不是 Electron 环境，请使用 EXE 运行')
     if (!loginName || !loginPassword) return setStatus('请先填写平台账号和密码')
     setStatus('正在打开自动化浏览器…')
@@ -251,6 +260,7 @@ export default function App() {
           <span className="status-dot" />
           <div><small>当前模式</small><strong>{mode}</strong></div>
         </div>
+
         <button type="button" className="config-trigger" onClick={() => setConfigOpen(true)}>配置</button>
       </header>
 
@@ -450,6 +460,7 @@ export default function App() {
           <button type="button" className="drawer-done" onClick={() => setConfigOpen(false)}>完成</button>
         </aside>
       </div> : null}
+
     </div>
   )
 }

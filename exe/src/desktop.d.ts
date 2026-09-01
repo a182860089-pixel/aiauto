@@ -5,6 +5,28 @@ type OcrResult = {
   [key: string]: unknown
 }
 
+interface LicenseStatus {
+  active: boolean
+  status: 'unactivated' | 'active' | 'expired' | 'disabled' | 'network_error'
+  message: string
+  machineId: string
+  code?: string
+  expiresAt?: string
+  remainingText?: string
+  remainingDays?: number
+  isOffline?: boolean
+  serverUrl?: string
+}
+
+interface LicenseConfig {
+  serverUrl: string
+  code: string
+  machineId: string
+  status: string
+  expiresAt?: string
+  remainingText?: string
+}
+
 interface DesktopApi {
   recognizeImage(payload: { dataUrl: string; apiKey: string; model: string }): Promise<OcrResult>
   saveOcrSettings(payload: { apiKeys: string; model: string }): Promise<{ model: string; keyCount: number; settingsPath: string }>
@@ -24,6 +46,14 @@ interface DesktopApi {
   }): Promise<string>
   clearBrowserTemplate(): Promise<string>
   onAutomationLog(callback: (payload: { message: string; time: string }) => void): () => void
+
+  // 卡密与一机一码授权
+  getMachineId(): Promise<string>
+  getLicenseStatus(): Promise<LicenseStatus>
+  getLicenseConfig(): Promise<LicenseConfig>
+  setLicenseServerUrl(url: string): Promise<LicenseConfig>
+  activateLicense(payload: { code: string; serverUrl?: string }): Promise<{ success: boolean; message: string; remainingText?: string; expiresAt?: string; code: string }>
+  clearLicense(): Promise<{ success: boolean; message: string }>
 }
 
 interface Window {

@@ -6,17 +6,17 @@ const TCM_PATTERNS = [
 ]
 
 const FIELD_ALIASES = {
-  patientNo: ['病历号', '病案号', '住院号'],
-  outpatientNo: ['门诊号', '就诊号', '挂号号'],
+  patientNo: ['病历号', '病案号', '住院号', '住院病案号', '住院号码', '住院编号', '住院病历号'],
+  outpatientNo: ['门诊号', '门诊号码'],
   name: ['姓名', '患者姓名'],
   gender: ['性别'],
   age: ['年龄'],
   visitType: ['初复诊', '初/复诊', '就诊类型', '诊别'],
   diagnosis: ['诊断', '主要诊断', '疾病诊断'],
-  westernDiagnosis: ['西医诊断', '西医病名'],
-  chineseDiagnosis: ['中医诊断', '中医病名'],
+  westernDiagnosis: ['西医诊断', '西医病名', '西医诊'],
+  chineseDiagnosis: ['中医诊断', '中医病名', '中医诊'],
   chinesePattern: ['中医证型', '证型', '辨证分型'],
-  visitDate: ['就诊日期', '日期', '入院日期', '诊疗日期'],
+  visitDate: ['就诊日期'],
   remarks: ['备注'],
 } as const
 
@@ -71,15 +71,6 @@ export function normalizeVisitType(value: string): NormalizedRecord['visitType']
   return ''
 }
 
-function recoverVisitType(value: string) {
-  const match = value.match(/(?:^|[\s_\-/])(初|复|複|急)(?:诊)?$/u) || value.match(/^(初|复|複|急)(?:诊)?$/u)
-  if (!match) return { value: value.trim(), visitType: '' as NormalizedRecord['visitType'] }
-  return {
-    value: value.slice(0, match.index).replace(/[\s_\-/]+$/g, '').trim(),
-    visitType: normalizeVisitType(match[1]),
-  }
-}
-
 export function normalizeDate(value: string) {
   const cleaned = value.trim().replace(/[年/.]/g, '-').replace(/月/g, '-').replace(/日/g, '')
   const match = cleaned.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:\s+.*)?$/)
@@ -93,32 +84,25 @@ export function normalizeDate(value: string) {
 }
 
 function diagnosisRouter(source: Record<string, string>) {
-  const explicitWestern = stripIcdCodes(pick(source, FIELD_ALIASES.westernDiagnosis))
-  const explicitChinese = pick(source, FIELD_ALIASES.chineseDiagnosis)
-  const explicitPattern = pick(source, FIELD_ALIASES.chinesePattern)
-  const generic = pick(source, FIELD_ALIASES.diagnosis)
-  const chinese = splitChineseDiagnosis(explicitChinese || (looksLikeTcmPattern(generic) ? generic : ''))
+  // 诊断字段必须对应图片中的明确列；通用“诊断”字段不替写中医诊断或西医诊断。
   return {
-    westernDiagnosis: explicitWestern || (!looksLikeTcmPattern(generic) ? stripIcdCodes(generic) : ''),
-    chineseDiagnosis: chinese.disease,
-    chinesePattern: explicitPattern || chinese.pattern,
+    westernDiagnosis: stripIcdCodes(pick(source, FIELD_ALIASES.westernDiagnosis)),
+    chineseDiagnosis: pick(source, FIELD_ALIASES.chineseDiagnosis),
+    chinesePattern: pick(source, FIELD_ALIASES.chinesePattern),
   }
 }
 
-/** 将一行 OCR 字段归一化，并将误入号码列的初/复/急单字自动归位。 */
+/** 将一行 OCR 字段归一化；号码列保持原文，就诊类型只读取对应列。 */
 export function normalizeRecord(input: Record<string, unknown>): NormalizedRecord {
   const source = Object.fromEntries(Object.entries(input).map(([key, value]) => [key, normalizeEllipsis(String(value ?? ''))]))
-  const patient = recoverVisitType(pick(source, FIELD_ALIASES.patientNo))
-  const outpatient = recoverVisitType(pick(source, FIELD_ALIASES.outpatientNo))
   const diagnosis = diagnosisRouter(source)
-  const explicitVisitType = normalizeVisitType(pick(source, FIELD_ALIASES.visitType))
   return {
-    patientNo: patient.value,
-    outpatientNo: outpatient.value,
+    patientNo: pick(source, FIELD_ALIASES.patientNo),
+    outpatientNo: pick(source, FIELD_ALIASES.outpatientNo),
     name: pick(source, FIELD_ALIASES.name),
     gender: pick(source, FIELD_ALIASES.gender),
     age: pick(source, FIELD_ALIASES.age),
-    visitType: explicitVisitType || outpatient.visitType || patient.visitType,
+    visitType: normalizeVisitType(pick(source, FIELD_ALIASES.visitType)),
     westernDiagnosis: diagnosis.westernDiagnosis,
     chineseDiagnosis: diagnosis.chineseDiagnosis,
     chinesePattern: diagnosis.chinesePattern,

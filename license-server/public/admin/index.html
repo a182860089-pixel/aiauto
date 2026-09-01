@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>卡密授权管理中心</title>
+  <style>
+    :root {
+      --primary: #4f46e5;
+      --primary-hover: #4338ca;
+      --primary-light: #eef2ff;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --radius: 10px;
+      --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.07);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); line-height: 1.5; min-height: 100vh; }
+    
+    /* 容器 */
+    .app-container { max-width: 1280px; margin: 0 auto; padding: 24px 16px; }
+    
+    /* 顶栏 */
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+    .header-title h1 { font-size: 22px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px; }
+    .header-title p { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+    .header-actions { display: flex; gap: 10px; }
+
+    /* 按钮 */
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 8px 16px; font-size: 14px; font-weight: 500; border-radius: 6px; border: 1px solid transparent; cursor: pointer; transition: all 0.15s ease; outline: none; }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-secondary { background: white; border-color: var(--border); color: #334155; }
+    .btn-secondary:hover { background: #f1f5f9; }
+    .btn-danger { background: #fee2e2; color: #b91c1c; border-color: #fecaca; }
+    .btn-danger:hover { background: #fecaca; }
+    .btn-sm { padding: 4px 8px; font-size: 12px; }
+
+    /* 统计卡片 */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .stat-card { background: var(--card-bg); padding: 16px 20px; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); }
+    .stat-label { font-size: 13px; color: var(--text-muted); font-weight: 500; }
+    .stat-value { font-size: 26px; font-weight: 700; margin-top: 6px; color: #1e293b; }
+
+    /* 操作工具栏 */
+    .toolbar { background: var(--card-bg); padding: 16px; border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); margin-bottom: 20px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; }
+    .search-group { display: flex; gap: 10px; flex: 1; max-width: 540px; }
+    .input { padding: 8px 12px; font-size: 14px; border: 1px solid var(--border); border-radius: 6px; outline: none; transition: border-color 0.15s; background: #ffffff; }
+    .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+    select.input { cursor: pointer; }
+
+    /* 表格 */
+    .table-container { background: var(--card-bg); border-radius: var(--radius); box-shadow: var(--shadow); border: 1px solid var(--border); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
+    th { background: #f8fafc; padding: 12px 16px; font-weight: 600; color: #475569; border-bottom: 1px solid var(--border); }
+    td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    tr:hover { background-color: #f8fafc; }
+
+    /* 状态徽章 */
+    .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; }
+    .badge-unactivated { background: #e0e7ff; color: #3730a3; }
+    .badge-active { background: #dcfce7; color: #166534; }
+    .badge-expired { background: #fee2e2; color: #991b1b; }
+    .badge-disabled { background: #f1f5f9; color: #475569; }
+
+    .code-text { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-weight: 600; color: #1e293b; letter-spacing: 0.5px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; }
+    .machine-text { font-family: monospace; font-size: 12px; color: #64748b; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* 模态弹窗 */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); display: flex; align-items: center; justify-content: center; z-index: 999; backdrop-filter: blur(2px); }
+    .modal-content { background: white; width: 100%; max-width: 520px; border-radius: var(--radius); box-shadow: var(--shadow-lg); overflow: hidden; animation: slideDown 0.2s ease; }
+    @keyframes slideDown { from { opacity: 0; transform: translateY(-12px); } to { opacity: 1; transform: translateY(0); } }
+    .modal-header { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+    .modal-header h3 { font-size: 16px; font-weight: 600; }
+    .modal-body { padding: 20px; max-height: 80vh; overflow-y: auto; }
+    .modal-footer { padding: 12px 20px; background: #f8fafc; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+    
+    .form-item { margin-bottom: 16px; }
+    .form-item label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: #334155; }
+    .form-item .input { width: 100%; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    /* 登录屏 */
+    .login-container { max-width: 380px; margin: 100px auto; background: white; padding: 32px 24px; border-radius: var(--radius); box-shadow: var(--shadow-lg); border: 1px solid var(--border); text-align: center; }
+    .login-container h2 { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .login-container p { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; }
+
+    .toast { position: fixed; top: 20px; right: 20px; padding: 12px 20px; border-radius: 8px; color: white; font-size: 14px; z-index: 9999; box-shadow: var(--shadow-lg); animation: fadeIn 0.2s ease; }
+    .toast-success { background: #059669; }
+    .toast-error { background: #dc2626; }
+    .toast-info { background: #2563eb; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- 登录页面 -->
+  <div id="loginSection" class="login-container">
+    <h2>🔑 卡密系统管理后台</h2>
+    <p>请输入管理员密码以进入控制中心</p>
+    <form id="loginForm" onsubmit="handleLogin(event)">
+      <div class="form-item">
+        <input type="password" id="loginPassword" class="input" placeholder="输入管理员密码 (默认: admin)" required autofocus>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width: 100%;">登 录</button>
+    </form>
+  </div>
+
+  <!-- 主应用页面 -->
+  <div id="mainSection" class="app-container hidden">
+    <header>
+      <div class="header-title">
+        <h1>🛡️ <span id="appTitle">卡密授权管理中心</span></h1>
+        <p>一机一码绑定 · 有效期管理 · 激活码批量生成与实时增删改查</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-secondary" onclick="openChangePwdModal()">修改密码</button>
+        <button class="btn btn-secondary btn-danger" onclick="handleLogout()">退出登录</button>
+      </div>
+    </header>
+
+    <!-- 看板统计 -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-label">总卡密数量</div>
+        <div class="stat-value" id="statTotal">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">未使用 (待激活)</div>
+        <div class="stat-value" style="color: #4f46e5;" id="statUnactivated">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">正常使用中</div>
+        <div class="stat-value" style="color: #10b981;" id="statActive">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">已过期</div>
+        <div class="stat-value" style="color: #f59e0b;" id="statExpired">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">已禁用</div>
+        <div class="stat-value" style="color: #ef4444;" id="statDisabled">0</div>
+      </div>
+    </div>
+
+    <!-- 筛选工具栏 -->
+    <div class="toolbar">
+      <div class="search-group">
+        <input type="text" id="searchInput" class="input" placeholder="搜索卡密 / 机器码 / 备注..." onkeyup="if(event.key==='Enter') loadLicenses(1)">
+        <select id="statusFilter" class="input" onchange="loadLicenses(1)">
+          <option value="">全部状态</option>
+          <option value="unactivated">未使用 (待激活)</option>
+          <option value="active">使用中 (有效)</option>
+          <option value="expired">已过期</option>
+          <option value="disabled">已禁用</option>
+        </select>
+        <button class="btn btn-secondary" onclick="loadLicenses(1)">查询</button>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <button class="btn btn-secondary" onclick="batchDeleteSelected()">批量删除</button>
+        <button class="btn btn-primary" onclick="openGenerateModal()">➕ 批量生成卡密</button>
+      </div>
+    </div>
+
+    <!-- 卡密列表表格 -->
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 40px;"><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
+            <th>卡密</th>
+            <th>状态</th>
+            <th>设定时长 / 剩余时间</th>
+            <th>绑定机器码</th>
+            <th>到期时间</th>
+            <th>备注</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="licenseTableBody">
+          <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 分页 -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+      <div style="font-size: 13px; color: var(--text-muted);" id="pageInfo">共 0 条记录</div>
+      <div style="display: flex; gap: 6px;" id="paginationControls">
+        <!-- 分页按钮 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- 批量生成模态弹窗 -->
+  <div id="generateModal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>批量生成卡密</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('generateModal')">✕</button>
+      </div>
+      <form id="generateForm" onsubmit="handleGenerate(event)">
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-item">
+              <label>生成数量</label>
+              <input type="number" id="genCount" class="input" min="1" max="500" value="10" required>
+            </div>
+            <div class="form-item">
+              <label>卡密前缀 (可选)</label>
+              <input type="text" id="genPrefix" class="input" placeholder="例如: VIP / PRO">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-item">
+              <label>有效时长类型</label>
+              <select id="genDurationType" class="input" onchange="handleDurationTypeChange()">
+                <option value="days">按天数 (推荐)</option>
+                <option value="hours">按小时</option>
+                <option value="months">按月份</option>
+                <option value="years">按年份</option>
+                <option value="permanent">永久授权</option>
+              </select>
+            </div>
+            <div class="form-item" id="durationValueGroup">
+              <label>时长数值</label>
+              <input type="number" id="genDurationValue" class="input" min="1" value="30" required>
+            </div>
+          </div>
+          <div class="form-item">
+            <label>备注信息</label>
+            <input type="text" id="genNote" class="input" placeholder="例如: 某某客户/批次号">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('generateModal')">取消</button>
+          <button type="submit" class="btn btn-primary">立即生成</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 生成结果弹窗 -->
+  <div id="resultModal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width: 580px;">
+      <div class="modal-header">
+        <h3 id="resultTitle">生成成功</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('resultModal')">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 10px;">以下是生成的卡密列表，请及时复制保存：</p>
+        <textarea id="resultText" class="input" style="width: 100%; height: 200px; font-family: monospace; font-size: 13px; line-height: 1.6;" readonly></textarea>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="exportResultTxt()">导出为 .txt</button>
+        <button class="btn btn-primary" onclick="copyResultText()">一键复制全部</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 编辑/修改卡密弹窗 -->
+  <div id="editModal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>修改卡密设置</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('editModal')">✕</button>
+      </div>
+      <form id="editForm" onsubmit="handleEditSubmit(event)">
+        <input type="hidden" id="editId">
+        <div class="modal-body">
+          <div class="form-item">
+            <label>卡密</label>
+            <input type="text" id="editCode" class="input" readonly style="background: #f1f5f9;">
+          </div>
+          <div class="form-row">
+            <div class="form-item">
+              <label>状态</label>
+              <select id="editStatus" class="input">
+                <option value="unactivated">待激活</option>
+                <option value="active">正常有效</option>
+                <option value="disabled">禁用</option>
+              </select>
+            </div>
+            <div class="form-item">
+              <label>快捷增加天数</label>
+              <select id="editAddDays" class="input">
+                <option value="0">不增加</option>
+                <option value="7">+ 7 天</option>
+                <option value="30">+ 30 天 (1个月)</option>
+                <option value="90">+ 90 天 (3个月)</option>
+                <option value="365">+ 365 天 (1年)</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-item">
+            <label>绑定机器码 (留空或勾选解绑即可清空绑定)</label>
+            <input type="text" id="editMachineId" class="input" placeholder="未绑定机器">
+            <label style="margin-top: 6px; font-weight: normal; font-size: 12px; color: #64748b; display: flex; align-items: center; gap: 6px;">
+              <input type="checkbox" id="editUnbindCheck"> 勾选此项强制解绑机器码（允许客户在其他电脑激活）
+            </label>
+          </div>
+          <div class="form-item">
+            <label>备注信息</label>
+            <input type="text" id="editNote" class="input">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('editModal')">取消</button>
+          <button type="submit" class="btn btn-primary">保存修改</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 修改密码弹窗 -->
+  <div id="changePwdModal" class="modal-overlay hidden">
+    <div class="modal-content" style="max-width: 400px;">
+      <div class="modal-header">
+        <h3>修改管理员密码</h3>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('changePwdModal')">✕</button>
+      </div>
+      <form id="changePwdForm" onsubmit="handleChangePassword(event)">
+        <div class="modal-body">
+          <div class="form-item">
+            <label>当前原密码</label>
+            <input type="password" id="oldPwd" class="input" required>
+          </div>
+          <div class="form-item">
+            <label>新密码</label>
+            <input type="password" id="newPwd" class="input" placeholder="不少于5位" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeModal('changePwdModal')">取消</button>
+          <button type="submit" class="btn btn-primary">确认修改</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let token = localStorage.getItem('license_admin_token') || ''
+    let currentPage = 1
+    let currentLicenses = []
+    let selectedIds = new Set()
+
+    function showToast(msg, type = 'success') {
+      const toast = document.createElement('div')
+      toast.className = `toast toast-${type}`
+      toast.innerText = msg
+      document.body.appendChild(toast)
+      setTimeout(() => toast.remove(), 2500)
+    }
+
+    async function apiRequest(path, options = {}) {
+      const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) }
+      if (token) headers['Authorization'] = `Bearer ${token}`
+      try {
+        const res = await fetch(path, { credentials: 'omit', ...options, headers })
+        const json = await res.json()
+        if (res.status === 401) {
+          handleLogout()
+          showToast(json.message || '登录过期，请重新登录', 'error')
+          throw new Error('Unauthorized')
+        }
+        return json
+      } catch (err) {
+        if (err.message !== 'Unauthorized') {
+          showToast(err.message || '网络请求失败', 'error')
+        }
+        throw err
+      }
+    }
+
+    // 检查登录状态
+    window.addEventListener('DOMContentLoaded', () => {
+      if (token) {
+        showMain()
+      } else {
+        showLogin()
+      }
+    })
+
+    function showLogin() {
+      document.getElementById('loginSection').classList.remove('hidden')
+      document.getElementById('mainSection').classList.add('hidden')
+    }
+
+    function showMain() {
+      document.getElementById('loginSection').classList.add('hidden')
+      document.getElementById('mainSection').classList.remove('hidden')
+      loadStats()
+      loadLicenses(1)
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault()
+      const password = document.getElementById('loginPassword').value.trim()
+      try {
+        const res = await apiRequest('/api/admin/login', {
+          method: 'POST',
+          body: JSON.stringify({ password })
+        })
+        if (res.success) {
+          token = res.token
+          localStorage.setItem('license_admin_token', token)
+          showToast('登录成功！')
+          showMain()
+        }
+      } catch (err) {
+        // Handled
+      }
+    }
+
+    function handleLogout() {
+      token = ''
+      localStorage.removeItem('license_admin_token')
+      showLogin()
+    }
+
+    async function loadStats() {
+      try {
+        const res = await apiRequest('/api/admin/stats')
+        if (res.success) {
+          document.getElementById('statTotal').innerText = res.data.total
+          document.getElementById('statUnactivated').innerText = res.data.unactivated
+          document.getElementById('statActive').innerText = res.data.active
+          document.getElementById('statExpired').innerText = res.data.expired
+          document.getElementById('statDisabled').innerText = res.data.disabled
+        }
+      } catch {}
+    }
+
+    async function loadLicenses(page = 1) {
+      currentPage = page
+      selectedIds.clear()
+      const selectAll = document.getElementById('selectAll')
+      if (selectAll) selectAll.checked = false
+
+      const keyword = document.getElementById('searchInput').value.trim()
+      const status = document.getElementById('statusFilter').value
+      const tbody = document.getElementById('licenseTableBody')
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 30px;">查询中...</td></tr>'
+
+      try {
+        const res = await apiRequest(`/api/admin/licenses?page=${page}&pageSize=15&keyword=${encodeURIComponent(keyword)}&status=${status}`)
+        if (res.success) {
+          currentLicenses = res.data.rows
+          renderTable(res.data.rows)
+          renderPagination(res.data)
+          loadStats()
+        }
+      } catch {}
+    }
+
+    function renderTable(rows) {
+      const tbody = document.getElementById('licenseTableBody')
+      if (!rows || rows.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 40px;">暂无符合条件的卡密数据</td></tr>'
+        return
+      }
+
+      const statusMap = {
+        unactivated: '<span class="badge badge-unactivated">待激活</span>',
+        active: '<span class="badge badge-active">正常使用</span>',
+        expired: '<span class="badge badge-expired">已过期</span>',
+        disabled: '<span class="badge badge-disabled">已禁用</span>',
+      }
+
+      tbody.innerHTML = rows.map((item) => {
+        const durationDesc = item.durationType === 'permanent' ? '永久' : `${item.durationValue} ${formatDurationType(item.durationType)}`
+        const remainingShow = item.activatedAt ? `<div style="font-weight: 500; color: ${item.isExpired ? '#ef4444' : '#10b981'};">${item.remainingText}</div>` : `<div style="color: #64748b;">${durationDesc}</div>`
+        const machineShow = item.machineId ? `<div class="machine-text" title="${item.machineId}">${item.machineId}</div>` : '<span style="color:#94a3b8;">未绑定</span>'
+        const expireShow = item.expiresAt ? new Date(item.expiresAt).toLocaleDateString('zh-CN', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' }) : '-'
+
+        return `
+          <tr>
+            <td><input type="checkbox" onchange="toggleSelectRow('${item.id}', this)" ${selectedIds.has(item.id) ? 'checked' : ''}></td>
+            <td>
+              <span class="code-text" onclick="copyText('${item.code}')" style="cursor: pointer;" title="点击复制卡密">
+                ${item.code} 📋
+              </span>
+            </td>
+            <td>${statusMap[item.computedStatus] || item.status}</td>
+            <td>${remainingShow}</td>
+            <td>${machineShow}</td>
+            <td>${expireShow}</td>
+            <td style="color: #475569;">${item.note || '-'}</td>
+            <td>
+              <div style="display: flex; gap: 4px;">
+                <button class="btn btn-secondary btn-sm" onclick="openEditModal('${item.id}')">编辑</button>
+                ${item.machineId ? `<button class="btn btn-secondary btn-sm" onclick="quickUnbind('${item.id}')" title="解绑机器码">解绑</button>` : ''}
+                <button class="btn btn-danger btn-sm" onclick="deleteLicense('${item.id}')">删除</button>
+              </div>
+            </td>
+          </tr>
+        `
+      }).join('')
+    }
+
+    function formatDurationType(type) {
+      if (type === 'hours') return '小时'
+      if (type === 'days') return '天'
+      if (type === 'months') return '个月'
+      if (type === 'years') return '年'
+      if (type === 'permanent') return '永久'
+      return '天'
+    }
+
+    function renderPagination(data) {
+      document.getElementById('pageInfo').innerText = `共 ${data.total} 条卡密 · 第 ${data.page} / ${Math.max(1, data.totalPages)} 页`
+      const box = document.getElementById('paginationControls')
+      box.innerHTML = ''
+
+      if (data.totalPages <= 1) return
+
+      const prevBtn = document.createElement('button')
+      prevBtn.className = 'btn btn-secondary btn-sm'
+      prevBtn.innerText = '上一页'
+      prevBtn.disabled = data.page <= 1
+      prevBtn.onclick = () => loadLicenses(data.page - 1)
+      box.appendChild(prevBtn)
+
+      const nextBtn = document.createElement('button')
+      nextBtn.className = 'btn btn-secondary btn-sm'
+      nextBtn.innerText = '下一页'
+      nextBtn.disabled = data.page >= data.totalPages
+      nextBtn.onclick = () => loadLicenses(data.page + 1)
+      box.appendChild(nextBtn)
+    }
+
+    function toggleSelectAll(checkbox) {
+      currentLicenses.forEach((item) => {
+        if (checkbox.checked) {
+          selectedIds.add(item.id)
+        } else {
+          selectedIds.delete(item.id)
+        }
+      })
+      renderTable(currentLicenses)
+    }
+
+    function toggleSelectRow(id, checkbox) {
+      if (checkbox.checked) {
+        selectedIds.add(id)
+      } else {
+        selectedIds.delete(id)
+      }
+    }
+
+    function handleDurationTypeChange() {
+      const type = document.getElementById('genDurationType').value
+      const valGroup = document.getElementById('durationValueGroup')
+      if (type === 'permanent') {
+        valGroup.style.display = 'none'
+      } else {
+        valGroup.style.display = 'block'
+      }
+    }
+
+    function openGenerateModal() {
+      document.getElementById('generateForm').reset()
+      handleDurationTypeChange()
+      document.getElementById('generateModal').classList.remove('hidden')
+    }
+
+    async function handleGenerate(e) {
+      e.preventDefault()
+      const count = document.getElementById('genCount').value
+      const prefix = document.getElementById('genPrefix').value
+      const durationType = document.getElementById('genDurationType').value
+      const durationValue = document.getElementById('genDurationValue').value
+      const note = document.getElementById('genNote').value
+
+      try {
+        const res = await apiRequest('/api/admin/licenses/generate', {
+          method: 'POST',
+          body: JSON.stringify({ count, prefix, durationType, durationValue, note })
+        })
+        if (res.success) {
+          closeModal('generateModal')
+          showToast(res.message)
+          loadLicenses(1)
+          // 展示结果框
+          const codes = res.data.map(item => item.code).join('\n')
+          document.getElementById('resultText').value = codes
+          document.getElementById('resultModal').classList.remove('hidden')
+        }
+      } catch {}
+    }
+
+    function copyResultText() {
+      const text = document.getElementById('resultText').value
+      copyText(text)
+    }
+
+    function exportResultTxt() {
+      const text = document.getElementById('resultText').value
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `卡密导出_${new Date().toISOString().slice(0, 10)}.txt`
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+
+    function copyText(str) {
+      navigator.clipboard.writeText(str).then(() => {
+        showToast('已复制到剪贴板！')
+      }).catch(() => {
+        showToast('复制失败，请手动复制', 'error')
+      })
+    }
+
+    function openEditModal(id) {
+      const item = currentLicenses.find(i => i.id === id)
+      if (!item) return
+      document.getElementById('editId').value = item.id
+      document.getElementById('editCode').value = item.code
+      document.getElementById('editStatus').value = item.status === 'disabled' ? 'disabled' : (item.activatedAt ? 'active' : 'unactivated')
+      document.getElementById('editMachineId').value = item.machineId || ''
+      document.getElementById('editNote').value = item.note || ''
+      document.getElementById('editAddDays').value = '0'
+      document.getElementById('editUnbindCheck').checked = false
+      document.getElementById('editModal').classList.remove('hidden')
+    }
+
+    async function handleEditSubmit(e) {
+      e.preventDefault()
+      const id = document.getElementById('editId').value
+      const status = document.getElementById('editStatus').value
+      const machineId = document.getElementById('editMachineId').value
+      const note = document.getElementById('editNote').value
+      const addDays = parseInt(document.getElementById('editAddDays').value, 10) || 0
+      const unbindMachine = document.getElementById('editUnbindCheck').checked
+
+      try {
+        const res = await apiRequest(`/api/admin/licenses/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ status, machineId, note, addDays, unbindMachine })
+        })
+        if (res.success) {
+          showToast('修改成功！')
+          closeModal('editModal')
+          loadLicenses(currentPage)
+        }
+      } catch {}
+    }
+
+    async function quickUnbind(id) {
+      if (!confirm('确定要解绑该卡密的机器码吗？解绑后允许在其他电脑上重新绑定激活。')) return
+      try {
+        const res = await apiRequest(`/api/admin/licenses/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ unbindMachine: true })
+        })
+        if (res.success) {
+          showToast('已成功解绑！')
+          loadLicenses(currentPage)
+        }
+      } catch {}
+    }
+
+    async function deleteLicense(id) {
+      if (!confirm('确定要彻底删除该卡密吗？此操作不可恢复。')) return
+      try {
+        const res = await apiRequest(`/api/admin/licenses/${id}`, { method: 'DELETE' })
+        if (res.success) {
+          showToast('删除成功')
+          loadLicenses(currentPage)
+        }
+      } catch {}
+    }
+
+    async function batchDeleteSelected() {
+      const ids = Array.from(selectedIds)
+      if (ids.length === 0) {
+        showToast('请先在表格左侧勾选要删除的卡密', 'error')
+        return
+      }
+      if (!confirm(`确定要批量删除选中的 ${ids.length} 张卡密吗？`)) return
+      try {
+        const res = await apiRequest('/api/admin/licenses/batch-delete', {
+          method: 'POST',
+          body: JSON.stringify({ ids })
+        })
+        if (res.success) {
+          showToast(res.message)
+          loadLicenses(1)
+        }
+      } catch {}
+    }
+
+    function openChangePwdModal() {
+      document.getElementById('changePwdForm').reset()
+      document.getElementById('changePwdModal').classList.remove('hidden')
+    }
+
+    async function handleChangePassword(e) {
+      e.preventDefault()
+      const oldPassword = document.getElementById('oldPwd').value
+      const newPassword = document.getElementById('newPwd').value
+      try {
+        const res = await apiRequest('/api/admin/change-password', {
+          method: 'POST',
+          body: JSON.stringify({ oldPassword, newPassword })
+        })
+        if (res.success) {
+          showToast('密码修改成功，请重新登录')
+          closeModal('changePwdModal')
+          handleLogout()
+        }
+      } catch {}
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden')
+    }
+  </script>
+</body>
+</html>

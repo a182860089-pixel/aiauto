@@ -2,6 +2,11 @@ node_modules/
 dist/
 .backend-dist/
 release/
+release2/
+.debug-crops/
+**/.debug-load.log
+license-server/node_modules/
+license-server/data/
 *.tsbuildinfo
 .env
 .env.*

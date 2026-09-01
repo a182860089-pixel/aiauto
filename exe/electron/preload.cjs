@@ -12,4 +12,12 @@ contextBridge.exposeInMainWorld('desktopApi', {
     ipcRenderer.on('automation:log', listener)
     return () => ipcRenderer.removeListener('automation:log', listener)
   },
+
+  // 卡密与一机一码授权
+  getMachineId: () => ipcRenderer.invoke('license:get-machine-id'),
+  getLicenseStatus: () => ipcRenderer.invoke('license:get-status'),
+  getLicenseConfig: () => ipcRenderer.invoke('license:get-config'),
+  setLicenseServerUrl: (url) => ipcRenderer.invoke('license:set-server-url', url),
+  activateLicense: (payload) => ipcRenderer.invoke('license:activate', payload),
+  clearLicense: () => ipcRenderer.invoke('license:clear'),
 })

@@ -10,7 +10,7 @@ function text(value) {
 function toInpatientPlatformFields(row) {
   if (row.category !== '住院病种记录') return null
   const patientName = text(row.patientName)
-  const hospitalNo = text(row.hospitalNo || row.recordNo)
+  const hospitalNo = text(row.hospitalNo)
   const diagnosis = text(row.tcmDiag)
   const diagnosisWestern = text(row.wmDiag)
   if (!patientName || PLACEHOLDER_NAMES.has(patientName) || !hospitalNo || (!diagnosis && !diagnosisWestern)) return null
@@ -19,7 +19,7 @@ function toInpatientPlatformFields(row) {
     HospitalNo: hospitalNo,
     Diagnosis: diagnosis,
     DiagnosisWestern: diagnosisWestern,
-    CreationTime: text(row.admissionDate || row.date),
+    CreationTime: text(row.admissionDate),
     Department: text(row.department),
     VisitRole: text(row.visitType) || '主管',
     Remarks: text(row.remarks),

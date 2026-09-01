@@ -5,6 +5,7 @@ import {
   getPlatformSkipReason,
   preparePlatformPreviewRows,
   selectInpatientFillRecords,
+  forceRowsAsInpatient,
 } from './platformFields'
 import type { ClassifiedPatientRow } from './smartClassifier'
 
@@ -232,6 +233,26 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
     setWorkingRows((current) => current.map((row) => (ids.has(row.id) ? { ...row, checked } : row)))
   }
 
+  var changeRowCategory = (row: ClassifiedPatientRow, category: ClassifiedPatientRow['category']) => {
+    setWorkingRows((current) => current.map((currentRow) => {
+      if (currentRow.id !== row.id) return currentRow
+      if (category === '住院病种记录') {
+        var next = { ...currentRow, category, checked: false, isManualModified: true }
+        return { ...next, checked: getPlatformSkipReason(next) === '' }
+      }
+      return { ...currentRow, category, checked: false, isManualModified: true }
+    }))
+  }
+
+  var enableInpatientFill = () => {
+    if (!workingRows.length) return setStatus('请先使用当前识别结果，或选择已导出的 Excel')
+    var nextRows = forceRowsAsInpatient(workingRows)
+    setWorkingRows(nextRows)
+    setPreviewTab('全部')
+    var fillable = nextRows.filter((row) => getPlatformSkipReason(row) === '').length
+    setStatus(`已按住院病种重新校正 ${nextRows.length} 行，其中 ${fillable} 行可填入；请核对后点击“登录平台并开始填入”`)
+  }
+
   var fillBrowser = async () => {
     if (!window.desktopApi) return setStatus('当前不是桌面端，请使用 EXE 运行')
     var login = {
@@ -343,7 +364,7 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
             <input type="radio" name="fill-scope" checked={fillScope === 'inpatient'} onChange={() => setFillScope('inpatient')} />
             <span>
               <strong>仅住院病种记录</strong>
-              <small>门诊、临床技术、手写大病历进入「将跳过」</small>
+              <small>门诊、临床技术、手写大病历进入「将跳过」；若 OCR 把住院列表识别成门诊，可点击表格上方“按住院病种启用填入”</small>
             </span>
           </label>
           <label className={`scope-option ${fillScope === 'excel' ? 'active' : ''}`}>
@@ -421,6 +442,9 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
             <div className="batch-selection-info">
               <button type="button" className="mini-btn" onClick={() => toggleVisible(true)}>全选</button>
               <button type="button" className="mini-btn" onClick={() => toggleVisible(false)}>全不选</button>
+              <button type="button" className="mini-btn primary" onClick={enableInpatientFill}>
+                按住院病种启用填入
+              </button>
               <span className="selection-count-text">
                 已勾选可填 <strong>{selectedFillable.length}</strong> / {fillableRows.length}
               </span>
@@ -450,6 +474,7 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
                 <thead>
                   <tr>
                     <th style={{ width: '40px' }}>选</th>
+                    <th style={{ width: '115px' }}>记录类别</th>
                     <th style={{ width: '90px' }}>姓名</th>
                     <th style={{ width: '95px' }}>住院号</th>
                     <th>中医诊断</th>
@@ -472,8 +497,21 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
                             onChange={(event) => toggleRow(row.id, event.target.checked)}
                           />
                         </td>
+                        <td>
+                          <select
+                            className="cell-select"
+                            value={row.category}
+                            onChange={(event) => changeRowCategory(row, event.target.value as ClassifiedPatientRow['category'])}
+                          >
+                            <option value="住院病种记录">住院病种记录</option>
+                            <option value="门诊病种记录">门诊病种记录</option>
+                            <option value="临床技术记录">临床技术记录</option>
+                            <option value="手写大病历">手写大病历</option>
+                            <option value="门诊病历">门诊病历</option>
+                          </select>
+                        </td>
                         <td>{row.patientName}</td>
-                        <td>{row.hospitalNo || row.recordNo}</td>
+                        <td>{row.hospitalNo}</td>
                         <td>{row.tcmDiag}</td>
                         <td>{row.wmDiag}</td>
                         <td>{row.department}</td>

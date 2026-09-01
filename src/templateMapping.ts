@@ -23,8 +23,8 @@ export const TEMPLATE_HEADER_ALIASES: Record<string, string[]> = {
   所在科室: ['所在科室', '科室', '就诊科室', '入院科室'],
   病人姓名: ['病人姓名', '患者姓名', '姓名', '患者', 'patientName', 'patient_name'],
   住院号: ['住院号', 'hospitalNo'],
-  中医诊断: ['中医诊断'],
-  西医诊断: ['西医诊断'],
+  中医诊断: ['中医诊断', '中医诊', '中医病名', '中医诊断病名'],
+  西医诊断: ['西医诊断', '西医诊', '西医病名', '西医诊断病名', '西医', '西诊'],
   '主管/参观': ['主管/参观'],
   住院日期: ['住院日期', '入院日期', 'admissionDate'],
   就诊日期: ['就诊日期', 'visitDate'],
@@ -38,7 +38,7 @@ export const TEMPLATE_HEADER_ALIASES: Record<string, string[]> = {
 }
 
 export function normalizeHeader(value: unknown) {
-  return String(value ?? '').replace(/[\s　]/g, '').toLowerCase()
+  return String(value ?? '').replace(/[\s　:_：/\\()（）\[\]【】.-]/g, '').toLowerCase()
 }
 
 function toRowObject(row: OcrRow, columns: string[]) {

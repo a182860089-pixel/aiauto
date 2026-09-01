@@ -656,6 +656,12 @@ button {
   font-size: 11px;
 }
 .mini-btn:hover { background: #e2e8f0; }
+.mini-btn.primary {
+  color: #ffffff;
+  border-color: #0f766e;
+  background: #0f766e;
+}
+.mini-btn.primary:hover { background: #115e59; }
 
 .batch-actions-form {
   display: flex;

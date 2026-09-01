@@ -50,24 +50,107 @@ export const CLINICAL_SKILL_KEYWORDS = [
   '清创', '缝合', '换药', '拆线', '引流', '石膏固定', '夹板固定',
 ]
 
+function isPlaceholderText(text: string) {
+  const normalized = String(text || '').trim().replace(/\s+/g, '')
+  if (!normalized) return true
+  if (['图片未识别', '图片未识别时保持空白', '未识别', '识别失败', '待识别', '暂无', '无'].includes(normalized)) return true
+  if (/^[YMD\-/_.]{3,}$/i.test(normalized)) return true
+  if (/^Y{2,4}(?:[-/.]?M{1,2}(?:[-/.]?D{1,2})?)?$/i.test(normalized)) return true
+  if (/^\d{4}[-/.]M{1,2}(?:[-/.]D{1,2})?$/i.test(normalized)) return true
+  if (/^[-—–·.]{2,}$/.test(normalized)) return true
+  return false
+}
+
 /**
  * 清理诊断文本中的 ICD 编码或证型编号
  * 例如: "(M47.921)颈椎病" -> "颈椎病"
  * 例如: "(A03.06.04.05)颈椎病:风寒湿痹阻证" -> "颈椎病:风寒湿痹阻证"
  * 例如: "I10.001 高血压" -> "高血压"
+ * 若窄列只识别到编码，保留原文，避免西医诊断被清空。
  */
 export function cleanDiagCode(text: string): string {
   if (!text) return ''
   var trimmed = String(text).trim()
-  // 0. 去除末尾截断的省略号
+  if (isPlaceholderText(trimmed)) return ''
   trimmed = trimmed.replace(/\.{2,}$|…+$/g, '').trim()
-  // 1. 去掉括号开头的编码 (M47.921)
-  trimmed = trimmed.replace(/^\([A-Za-z0-9.+*_\-:]+\)\s*/, '')
-  // 2. 去掉以中括号开头的编码 [M47.921]
-  trimmed = trimmed.replace(/^\[[A-Za-z0-9.+*_\-:]+\]\s*/, '')
-  // 3. 去掉纯字母加数字编码开头的如 "I10.001 " 或 "A03.01 "
-  trimmed = trimmed.replace(/^[A-Za-z]\d{2,3}(?:\.\d+)?\s+/, '')
-  return trimmed.trim()
+  var original = trimmed
+  trimmed = trimmed.replace(/^[（(]\s*[A-Za-z][A-Za-z0-9.+*_\-:xX]+\s*[）)]\s*/, '')
+  trimmed = trimmed.replace(/^[\[【]\s*[A-Za-z][A-Za-z0-9.+*_\-:xX]+\s*[\]】]\s*/, '')
+  trimmed = trimmed.replace(/^[A-Za-z]\d{2,3}(?:\.[0-9A-Za-z]+)?(?:xx\d+)?\s+/, '')
+  if (trimmed.trim()) return trimmed.trim()
+  var chinese = original.replace(/[A-Za-z0-9.+*_\-:xX（()）\[\]【】\s]/g, '').trim()
+  return chinese || original
+}
+
+const TCM_DIAG_ALIASES = ['中医诊断', '中医诊', '中医病名', '中医诊断病名', 'tcmDiag']
+const WM_DIAG_ALIASES = ['西医诊断', '西医诊', '西医病名', '西医诊断病名', 'wmDiag', '西医', '西诊']
+
+function headerMatches(key: string, alias: string) {
+  var k = normalizeHeader(key)
+  var a = normalizeHeader(alias)
+  if (!k || !a) return false
+  if (k === a) return true
+  if (k.length < 2 || a.length < 2) return false
+  return k.startsWith(a) || a.startsWith(k)
+}
+
+function findSourceKey(source: Record<string, string>, aliases: string[]) {
+  return Object.keys(source).find((key) => aliases.some((alias) => headerMatches(key, alias))) || ''
+}
+
+/**
+ * 判断单元格是否像西医诊断：ICD 括号编码，或常见西医病名。
+ */
+export function looksLikeWesternDiagCell(text: string): boolean {
+  var value = String(text || '').trim()
+  if (!value || isPlaceholderText(value)) return false
+  if (/[（(]\s*[A-Za-z][0-9][0-9A-Za-z.xX]{1,}\s*[）)]/.test(value)) return true
+  if (/(颈椎病|腰椎|间盘突出|筋膜炎|关节炎|高血压|糖尿病|感冒|失眠|头痛|腰痛|膝关|髋关|肺炎|支气管|综合征|影像异常|功能紊乱|高脂血|糖耐量|胃肠|眩晕|肾炎)/.test(value)) return true
+  return false
+}
+
+function pickRawDiagnoses(source: Record<string, string>) {
+  var keys = Object.keys(source)
+  var tcmKey = findSourceKey(source, TCM_DIAG_ALIASES)
+  var wmKey = findSourceKey(source, WM_DIAG_ALIASES)
+  var rawTcmDiag = tcmKey ? String(source[tcmKey] ?? '').trim() : ''
+  var rawWmDiag = wmKey ? String(source[wmKey] ?? '').trim() : ''
+  if (!rawWmDiag && tcmKey) {
+    var tcmIndex = keys.indexOf(tcmKey)
+    if (tcmIndex > 0) {
+      var leftKey = keys[tcmIndex - 1]
+      var leftVal = String(source[leftKey] ?? '').trim()
+      if (leftKey !== tcmKey && looksLikeWesternDiagCell(leftVal)) rawWmDiag = leftVal
+    }
+  }
+  if (!rawWmDiag) {
+    keys.some((key) => {
+      if (key === tcmKey) return false
+      var value = String(source[key] ?? '').trim()
+      if (!looksLikeWesternDiagCell(value)) return false
+      if (isTcmDiagPattern(cleanDiagCode(value))) return false
+      rawWmDiag = value
+      return true
+    })
+  }
+  if (!rawTcmDiag || !rawWmDiag) {
+    for (var index = keys.length - 1; index >= 0; index -= 1) {
+      var key = keys[index]
+      if (key === tcmKey || key === wmKey) continue
+      var value = String(source[key] ?? '').trim()
+      if (!value || isPlaceholderText(value)) continue
+      var cleaned = cleanDiagCode(value)
+      if (!rawTcmDiag && isTcmDiagPattern(cleaned)) {
+        rawTcmDiag = value
+        continue
+      }
+      if (!rawWmDiag && looksLikeWesternDiagCell(value) && !isTcmDiagPattern(cleaned)) {
+        rawWmDiag = value
+      }
+      if (rawTcmDiag && rawWmDiag) break
+    }
+  }
+  return { rawTcmDiag, rawWmDiag }
 }
 
 /**
@@ -77,7 +160,8 @@ export function isTcmDiagPattern(text: string): boolean {
   if (!text) return false
   var t = text.trim()
   if (t.includes(':') || t.includes('：')) return true
-  if (/[证型病]$/.test(t)) return true
+  // “病”单独作为结尾不能判断为中医诊断；高血压病、冠心病等西医病名也常以“病”结尾。
+  if (/(证|证型|证候|型)$/.test(t)) return true
   if (/(风寒|风热|湿热|寒湿|气虚|阴虚|阳虚|气阴两虚|痰湿|瘀血|肝郁|心火|肝火|脾虚|肾虚|血瘀|痹阻)/.test(t)) return true
   return false
 }
@@ -94,6 +178,7 @@ export function parseTcmDiag(text: string): string {
  */
 export function cleanDateText(text: string): string {
   if (!text) return ''
+  if (isPlaceholderText(text)) return ''
   var match = text.match(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/)
   if (match) {
     return match[0].replace(/\//g, '-').replace(/\./g, '-')
@@ -119,86 +204,61 @@ export function inferPatientRow(
   }
 
   var patientName = getVal(['姓名', '患者姓名', '病人姓名', '患者', '病人', 'name'])
-  var hospitalNo = getVal(['住院号', '住院病案号', '住院号码', 'hospitalNo'])
-  var outpatientNo = getVal(['门诊号', '挂号单', '挂号单号', '就诊号', 'outpatientNo'])
-  var medicalRecordNo = getVal(['病历号', '病案号', 'medicalRecordNo'])
-  
-  var rawTcmDiag = getVal(['中医诊断', '中医病名', '中医证型', 'tcmDiag'])
-  var rawWmDiag = getVal(['西医诊断', '西医病名', 'wmDiag'])
+  var hospitalNo = getVal(['住院号', '住院病案号', '住院号码', '住院编号', '住院病历号', '住院患者号', '住院登记号', 'hospitalNo'])
+  var outpatientNo = getVal(['门诊号', '门诊号码', 'outpatientNo'])
+  var medicalRecordNo = getVal(['病历号', '病案号', '病案编号', '医疗记录号', 'medicalRecordNo'])
+
+  // 兼容 HIS 截断表头；西医诊断在中医诊断左侧，表头对不上时按列位置和 ICD 形态补回。
+  var pickedDiags = pickRawDiagnoses(source)
+  var rawTcmDiag = pickedDiags.rawTcmDiag
+  var rawWmDiag = pickedDiags.rawWmDiag
   var rawGeneralDiag = getVal(['诊断', '主要诊断', '临床诊断', '初步诊断', '门诊诊断', 'diag', 'diagnosis'])
 
   var operation = getVal(['操作名称', '手术名称', '技术名称', '治疗项目', 'operationName'])
-  var admissionDate = getVal(['入院日期', '住院日期', 'admissionDate'])
-  var visitDate = getVal(['就诊日期', '接诊日期', '挂号日期', '时间', 'visitDate'])
-  var operationDate = getVal(['操作日期', '手术日期', '治疗日期', 'operationDate'])
-  var generalDate = getVal(['日期', 'date', '编辑日期'])
-  var urgentOrFollowup = getVal(['急复', '初复诊', '初诊/复诊', '就诊类型', '类型', '类别', '号类'])
+  if (isPlaceholderText(operation)) operation = ''
+  var admissionDate = getVal(['入院日期', '住院日期', '入院时间', '住院时间', 'admissionDate'])
+  var visitDate = getVal(['就诊日期', '接诊日期', '就诊时间', 'visitDate'])
+  var operationDate = getVal(['操作日期', '手术日期', '治疗日期', '操作时间', 'operationDate'])
+  var generalDate = getVal(['日期', '时间', 'date', '编辑日期'])
+  var urgentOrFollowup = getVal(['急复', '初复诊', '初诊/复诊', '就诊类型'])
   var docOrVisitType = getVal(['主管/参观', '带教形式', '医生角色'])
-  var deptInRow = getVal(['所在科室', '科室', '就诊科室', '入院科室', '执行科室', '号别', '挂号类别'])
+  var deptInRow = getVal(['所在科室', '科室', '就诊科室', '入院科室', '执行科室'])
   var remarks = getVal(['备注', 'remarks'])
 
-  // 纠偏 1：防止把“初”、“复”、“急”误识别为病历号/住院号/门诊号
-  var checkTypeMisplacement = (val: string) => /^[初复急门住]+(诊)?$/.test(val)
-  if (checkTypeMisplacement(medicalRecordNo)) {
-    if (!urgentOrFollowup) urgentOrFollowup = medicalRecordNo
-    medicalRecordNo = ''
-  }
-  if (checkTypeMisplacement(outpatientNo)) {
-    if (!urgentOrFollowup) urgentOrFollowup = outpatientNo
-    outpatientNo = ''
-  }
-  if (checkTypeMisplacement(hospitalNo)) {
-    if (!urgentOrFollowup) urgentOrFollowup = hospitalNo
-    hospitalNo = ''
-  }
+  // 所有字段保留 OCR 对应单元格的原文，不把类型单字从号码列移走。
+  var categoryText = getVal(['记录类别', '记录类型', '病种类别', '业务类别'])
+  var explicitCategory: PatientCategory | '' = (['住院病种记录', '门诊病种记录', '临床技术记录', '手写大病历', '门诊病历'] as PatientCategory[]).find((item) => categoryText === item) || ''
 
-  // 纠偏 2：中西医诊断智能分流
-  var tcmDiag = parseTcmDiag(rawTcmDiag)
+  // 诊断列优先用明确表头；若图片只给了泛化“诊断”列，再按内容分流补回。
+  var tcmDiag = cleanDiagCode(rawTcmDiag)
   var wmDiag = cleanDiagCode(rawWmDiag)
-
-  if (rawGeneralDiag) {
-    var cleanedGen = cleanDiagCode(rawGeneralDiag)
-    if (isTcmDiagPattern(cleanedGen)) {
-      if (!tcmDiag) tcmDiag = cleanedGen
-    } else {
-      if (!wmDiag) wmDiag = cleanedGen
-    }
+  if (!tcmDiag && !wmDiag && rawGeneralDiag) {
+    var cleanedGeneralDiag = cleanDiagCode(rawGeneralDiag)
+    if (isTcmDiagPattern(cleanedGeneralDiag)) tcmDiag = cleanedGeneralDiag
+    else wmDiag = cleanedGeneralDiag
+  } else if (rawGeneralDiag) {
+    var cleanedGeneralDiag = cleanDiagCode(rawGeneralDiag)
+    if (!tcmDiag && isTcmDiagPattern(cleanedGeneralDiag)) tcmDiag = cleanedGeneralDiag
+    else if (!wmDiag) wmDiag = cleanedGeneralDiag
   }
-
-  // 如果西医诊断里填的是中医证型，自动转移到中医诊断
-  if (wmDiag && isTcmDiagPattern(wmDiag) && !tcmDiag) {
+  if (!tcmDiag && wmDiag && isTcmDiagPattern(wmDiag)) {
     tcmDiag = wmDiag
     wmDiag = ''
   }
 
-  // 时间字段互补与清洗
-  var rawTime = visitDate || admissionDate || operationDate || generalDate || ''
-  var normalizedDate = cleanDateText(rawTime)
-  if (visitDate) visitDate = cleanDateText(visitDate)
-  if (admissionDate) admissionDate = cleanDateText(admissionDate)
-  if (operationDate) operationDate = cleanDateText(operationDate)
-  if (generalDate) generalDate = cleanDateText(generalDate)
+  // 日期只清洗当前列原文，不把入院/就诊/操作日期互相填过去。
+  var visitDateClean = cleanDateText(visitDate)
+  var admissionDateClean = cleanDateText(admissionDate)
+  var operationDateClean = cleanDateText(operationDate)
+  var generalDateClean = cleanDateText(generalDate)
 
-  // 就诊类型判断 (初诊/复诊 / 主管/参观)
+  // 就诊类型只读取对应列原文，不用住院号或其他列推断。
   var visitType: ClassifiedPatientRow['visitType'] = ''
-  if (docOrVisitType.includes('参观')) {
-    visitType = '参观'
-  } else if (docOrVisitType.includes('主管') || hospitalNo) {
-    visitType = '主管'
-  }
+  if (docOrVisitType.includes('参观')) visitType = '参观'
+  else if (docOrVisitType.includes('主管')) visitType = '主管'
+  if (urgentOrFollowup.includes('复') || urgentOrFollowup.includes('复诊')) visitType = '复诊'
+  else if (urgentOrFollowup.includes('初') || urgentOrFollowup.includes('初诊')) visitType = '初诊'
 
-  if (urgentOrFollowup.includes('复') || urgentOrFollowup.includes('复诊')) {
-    visitType = '复诊'
-  } else if (urgentOrFollowup.includes('初') || urgentOrFollowup.includes('初诊')) {
-    visitType = '初诊'
-  }
-
-  // 记录号清洗
-  medicalRecordNo = medicalRecordNo.replace(/\.{2,}$|…+$/g, '').trim()
-  hospitalNo = hospitalNo.replace(/\.{2,}$|…+$/g, '').trim()
-  outpatientNo = outpatientNo.replace(/\.{2,}$|…+$/g, '').trim()
-
-  // 记录号整合
   var recordNo = hospitalNo || outpatientNo || medicalRecordNo || ''
 
   // 2. 智能分类推断
@@ -206,93 +266,45 @@ export function inferPatientRow(
   var inferredReason = ''
   var confidence: 'high' | 'medium' | 'low' = 'medium'
 
-  // 检查是否命中临床技术
-  var matchedSkill = CLINICAL_SKILL_KEYWORDS.find(
-    (kw) =>
-      operation.includes(kw) ||
-      tcmDiag.includes(kw) ||
-      wmDiag.includes(kw) ||
-      deptInRow.includes(kw) ||
-      sourceImage.includes(kw)
-  )
-
-  if (matchedSkill && !hospitalNo) {
-    // 临床技术记录
-    category = '临床技术记录'
-    if (!operation) {
-      operation = matchedSkill.includes('针灸')
-        ? '针灸治疗 / 穴位针刺技术'
-        : matchedSkill.includes('推拿') || matchedSkill.includes('软伤')
-        ? '推拿手法治疗'
-        : `${matchedSkill}操作`
-    }
-    inferredReason = `命中操作/专科关键词「${matchedSkill}」`
+  // 分类只接受图片中明确出现的记录类别字段；没有该列时保持未分类，不拿号码、日期、科室、诊断或文件名推断。
+  if (explicitCategory) {
+    category = explicitCategory
+    inferredReason = '图片中明确提供记录类别'
     confidence = 'high'
-    if (!operationDate && normalizedDate) operationDate = normalizedDate
-  } else if (hospitalNo || admissionDate || sourceImage.includes('住院') || sourceImage.includes('出院')) {
-    category = '住院病种记录'
-    inferredReason = hospitalNo ? `含住院号 ${hospitalNo}` : '识别自住院界面/包含入院特征'
-    confidence = 'high'
-    if (!visitType) visitType = '主管'
-    if (!admissionDate && normalizedDate) admissionDate = normalizedDate
-  } else if (outpatientNo || visitDate || urgentOrFollowup || sourceImage.includes('门诊')) {
-    category = '门诊病种记录'
-    inferredReason = outpatientNo ? `含门诊号 ${outpatientNo}` : '识别自门诊接诊列表'
-    confidence = 'high'
-    if (!visitType) visitType = '初诊'
-    if (!visitDate && normalizedDate) visitDate = normalizedDate
-  } else if (sourceImage.includes('大病历') || sourceImage.includes('手写')) {
-    category = '手写大病历'
-    inferredReason = '文件名含「大病历」'
-    confidence = 'high'
-    if (!generalDate && normalizedDate) generalDate = normalizedDate
-  } else if (sourceImage.includes('病历') || sourceImage.includes('处方')) {
-    category = '门诊病历'
-    inferredReason = '文件名含「病历」附件'
-    confidence = 'medium'
-    if (!generalDate && normalizedDate) generalDate = normalizedDate
   } else {
-    // 兜底策略
-    category = '门诊病种记录'
-    inferredReason = '根据通用字段特征默认归入门诊病种'
+    category = '未分类'
+    inferredReason = '图片未提供明确记录类别字段，请人工选择'
     confidence = 'low'
   }
 
-  // 科室推断
-  var finalDept = defaultDepartment
-  if (deptInRow) {
-    if (deptInRow.includes('针灸')) finalDept = '通州针灸科'
-    else if (deptInRow.includes('软伤') || deptInRow.includes('推拿')) finalDept = '通州软伤推拿科'
-    else if (deptInRow.includes('心血管') || deptInRow.includes('心内')) finalDept = '通州心血管二区'
-    else if (deptInRow.includes('肾') || deptInRow.includes('内分泌')) finalDept = '通州肾病内分泌四区'
-    else if (deptInRow.includes('呼吸')) finalDept = '通州呼吸科二区'
-    else finalDept = deptInRow
-  }
+  var finalDept = deptInRow || defaultDepartment
+
+  var outputCategory: PatientCategory = String(category) as PatientCategory
 
   return {
     id,
     checked: true,
     sourceImage,
-    patientName: patientName || '未命名患者',
+    patientName,
     recordNo,
     hospitalNo,
     outpatientNo,
-    medicalRecordNo: medicalRecordNo || recordNo,
+    medicalRecordNo,
     tcmDiag,
     wmDiag,
     operationName: operation,
     visitType,
-    date: normalizedDate,
-    admissionDate: admissionDate || normalizedDate,
-    visitDate: visitDate || normalizedDate,
-    operationDate: operationDate || normalizedDate,
-    generalDate: generalDate || normalizedDate,
+    date: generalDateClean || visitDateClean || admissionDateClean || operationDateClean,
+    admissionDate: admissionDateClean,
+    visitDate: visitDateClean,
+    operationDate: operationDateClean,
+    generalDate: generalDateClean,
     department: finalDept,
-    category,
+    category: outputCategory,
     inferredReason,
     confidence,
     remarks,
-    imageFile: category === '手写大病历' || category === '门诊病历' ? sourceImage : '',
+    imageFile: outputCategory === '手写大病历' || outputCategory === '门诊病历' ? sourceImage : '',
     rawSourceRow: source,
   }
 }
@@ -335,33 +347,17 @@ export function mapClassifiedRowToTemplateRow(row: ClassifiedPatientRow): string
   var operationName = ''
   var generalDate = ''
 
-  if (category === '住院病种记录') {
-    hospitalNo = row.hospitalNo || row.recordNo || ''
-    visitRole = row.visitType || '主管'
-    admissionDate = row.admissionDate || row.date || ''
-  } else if (category === '门诊病种记录') {
-    visitDate = row.visitDate || row.date || ''
-    visitType = row.visitType || '初诊'
-    medicalRecordNo = row.outpatientNo || row.medicalRecordNo || row.recordNo || ''
-  } else if (category === '临床技术记录') {
-    hospitalNo = row.hospitalNo || ''
-    medicalRecordNo = row.medicalRecordNo || row.outpatientNo || row.recordNo || ''
-    operationDate = row.operationDate || row.date || ''
-    operationName = row.operationName || ''
-  } else if (category === '手写大病历') {
-    hospitalNo = row.hospitalNo || row.recordNo || ''
-    medicalRecordNo = row.medicalRecordNo || row.recordNo || ''
-    generalDate = row.generalDate || row.date || ''
-    if (!imageFile) imageFile = row.sourceImage || ''
-  } else if (category === '门诊病历') {
-    medicalRecordNo = row.medicalRecordNo || row.outpatientNo || row.recordNo || ''
-    generalDate = row.generalDate || row.date || ''
-    if (!imageFile) imageFile = row.sourceImage || ''
-  } else {
-    // 未分类/兜底
-    hospitalNo = row.hospitalNo || ''
-    medicalRecordNo = row.medicalRecordNo || row.outpatientNo || row.recordNo || ''
-    generalDate = row.date || ''
+  hospitalNo = row.hospitalNo || ''
+  visitRole = row.visitType === '主管' || row.visitType === '参观' ? row.visitType : ''
+  admissionDate = row.admissionDate || ''
+  visitDate = row.visitDate || ''
+  visitType = row.visitType === '初诊' || row.visitType === '复诊' ? row.visitType : ''
+  medicalRecordNo = row.medicalRecordNo || ''
+  operationDate = row.operationDate || ''
+  operationName = row.operationName || ''
+  generalDate = row.generalDate || row.date || ''
+  if ((category === '手写大病历' || category === '门诊病历') && !imageFile) {
+    imageFile = row.sourceImage || ''
   }
 
   return [

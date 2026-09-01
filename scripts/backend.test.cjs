@@ -16,25 +16,53 @@ test('repairs truncated model JSON and normalizes row schema', () => {
   assert.deepEqual(result.table.rows, [['A-1', '肺炎']])
 })
 
+test('repairs missing commas between table rows', () => {
+  const result = backend.parseVisionJson('{"table":{"columns":["姓名","住院号"],"rows":[["杨旭","376813"]["李四","009281"]]}}')
+  assert.deepEqual(result.table.columns, ['姓名', '住院号'])
+  assert.deepEqual(result.table.rows, [['杨旭', '376813'], ['李四', '009281']])
+})
+
+test('repairs missing commas between adjacent strings and does not throw on junk JSON', () => {
+  const adjacent = backend.parseVisionJson('{"table":{"columns":["A","B"],"rows":[["x""y"]]}}')
+  assert.deepEqual(adjacent.table.rows, [['x', 'y']])
+  const junk = backend.parseVisionJson('not json at all {]')
+  assert.deepEqual(junk.table.columns, [])
+  assert.deepEqual(junk.table.rows, [])
+})
+
 test('merges reordered slice columns and removes repeated boundary rows', () => {
   const result = backend.mergeVisionResults([
-    { sliceIndex: 1, fields: {}, table: { columns: ['诊断', '病历号'], rows: [['肺炎', '001'], ['哮喘', '002']] } },
-    { sliceIndex: 0, fields: {}, table: { columns: ['病历号', '诊断'], rows: [['001', '肺炎'], ['003', '高血压']] } },
+    { sliceIndex: 1, fields: {}, table: { columns: ['西医诊断', '病历号'], rows: [['肺炎', '001'], ['哮喘', '002']] } },
+    { sliceIndex: 0, fields: {}, table: { columns: ['病历号', '西医诊断'], rows: [['001', '肺炎'], ['003', '高血压']] } },
   ])
-  assert.deepEqual(result.columns, ['诊断', '病历号'])
+  assert.deepEqual(result.columns, ['西医诊断', '病历号'])
   assert.equal(result.rows.length, 3)
   assert.deepEqual(result.rows[0], ['肺炎', '001'])
   assert.equal(result.records.find((row) => row.patientNo === '001').westernDiagnosis, '肺炎')
 })
 
-test('routes Chinese diagnosis and recovers visit status from number fields', () => {
-  const result = backend.normalizeRecord({ 病历号: 'ZY-203 初', 诊断: '咳嗽：风热犯肺证', 日期: '2026年8月9日', 备注: '待定......' })
-  assert.equal(result.patientNo, 'ZY-203')
-  assert.equal(result.visitType, '初诊')
-  assert.equal(result.chineseDiagnosis, '咳嗽')
-  assert.equal(result.chinesePattern, '风热犯肺证')
-  assert.equal(result.visitDate, '2026-08-09')
-  assert.equal(result.remarks, '待定…')
+test('routes only explicit diagnosis columns and keeps generic diagnosis separate', () => {
+  const withGeneric = backend.normalizeRecord({
+    病历号: 'ZY-203',
+    诊断: '咳嗽：风热犯肺证',
+    就诊日期: '2026年8月9日',
+    备注: '待定......',
+  })
+  assert.equal(withGeneric.patientNo, 'ZY-203')
+  assert.equal(withGeneric.chineseDiagnosis, '')
+  assert.equal(withGeneric.chinesePattern, '')
+  assert.equal(withGeneric.westernDiagnosis, '')
+  assert.equal(withGeneric.visitDate, '2026-08-09')
+  assert.equal(withGeneric.remarks, '待定…')
+
+  const withExplicitColumns = backend.normalizeRecord({
+    中医诊断: '咳嗽：风热犯肺证',
+    西医诊断: '急性支气管炎 (J20.9)',
+    中医证型: '风热犯肺证',
+  })
+  assert.equal(withExplicitColumns.chineseDiagnosis, '咳嗽：风热犯肺证')
+  assert.equal(withExplicitColumns.chinesePattern, '风热犯肺证')
+  assert.equal(withExplicitColumns.westernDiagnosis, '急性支气管炎')
 })
 
 test('strips ICD-10 variants only from diagnosis text', () => {

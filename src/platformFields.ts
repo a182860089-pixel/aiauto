@@ -29,7 +29,7 @@ function text(value: unknown) {
 export function toInpatientPlatformFields(row: ClassifiedPatientRow): PlatformRecordFields | null {
   if (row.category !== '住院病种记录') return null
   const patientName = text(row.patientName)
-  const hospitalNo = text(row.hospitalNo || row.recordNo)
+  const hospitalNo = text(row.hospitalNo)
   const diagnosis = text(row.tcmDiag)
   const diagnosisWestern = text(row.wmDiag)
   if (!patientName || PLACEHOLDER_NAMES.has(patientName) || !hospitalNo || (!diagnosis && !diagnosisWestern)) return null
@@ -38,7 +38,7 @@ export function toInpatientPlatformFields(row: ClassifiedPatientRow): PlatformRe
     HospitalNo: hospitalNo,
     Diagnosis: diagnosis,
     DiagnosisWestern: diagnosisWestern,
-    CreationTime: text(row.admissionDate || row.date),
+    CreationTime: text(row.admissionDate),
     Department: text(row.department),
     VisitRole: text(row.visitType) || '主管',
     Remarks: text(row.remarks),
@@ -88,6 +88,23 @@ export function preparePlatformPreviewRows(rows: ClassifiedPatientRow[]): Classi
     ...row,
     checked: getPlatformSkipReason(row) === '',
   }))
+}
+
+/**
+ * 只有图片对应的住院号列有值时才生成住院号；记录类别由人工指定，但号码和诊断仍保持原列来源。
+ */
+export function forceRowsAsInpatient(rows: ClassifiedPatientRow[]): ClassifiedPatientRow[] {
+  return rows.map((row) => {
+    const hospitalNo = text(row.hospitalNo)
+    const next = {
+      ...row,
+      category: '住院病种记录' as const,
+      hospitalNo,
+      checked: false,
+      isManualModified: true,
+    }
+    return { ...next, checked: getPlatformSkipReason(next) === '' }
+  })
 }
 
 export type OcrTableSource = {

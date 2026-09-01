@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron')
 const fs = require('node:fs')
+const http = require('node:http')
 const path = require('node:path')
 const {
   areTargetFieldsFilled,
@@ -29,10 +30,26 @@ const { writeOcrWorkbook } = require('./excelExporter.cjs')
 const { normalizeApiKeys, requestVisionOcr } = require('./ocrClient.cjs')
 const { getOcrSettings, getSettingsPath, saveOcrSettings } = require('./ocrSettings.cjs')
 const { startPlatformFixtureServer } = require('./platformFixture.cjs')
+const { LicenseManager } = require('./licenseClient.cjs')
 
 let automationWindow
 let mainWindow
 let fixtureServer
+let licenseManager
+let distServer
+
+/** 返回当前卡密管理器实例。 */
+function getLicenseManager() {
+  if (!licenseManager) {
+    licenseManager = new LicenseManager(app.getPath('userData'))
+  }
+  return licenseManager
+}
+
+/** 卡密授权已关闭，识别/导出/填入不再校验激活状态。 */
+async function ensureLicensed() {
+  return true
+}
 
 /** 返回浏览器流程模板的本地保存路径。 */
 function getWorkflowTemplatePath() {
@@ -62,13 +79,59 @@ function clearWorkflowTemplate() {
   return '已清除浏览器操作模板'
 }
 
+function getDistDir() {
+  return path.join(__dirname, '..', 'dist')
+}
+
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.map': 'application/json',
+}
+
+function writeLoadLog(message) {
+  fs.appendFileSync(path.join(__dirname, '..', '.debug-load.log'), `${new Date().toISOString()} ${message}\n`)
+}
+
+/** 开发态用本机 HTTP 提供 dist，避免 file:// 模块脚本白屏。 */
+function startDistServer() {
+  const distDir = getDistDir()
+  return new Promise((resolve, reject) => {
+    const server = http.createServer((req, res) => {
+      try {
+        let urlPath = decodeURIComponent((req.url || '/').split('?')[0])
+        if (urlPath === '/') urlPath = '/index.html'
+        const filePath = path.normalize(path.join(distDir, urlPath.replace(/^[/\\]+/, '')))
+        const relative = path.relative(distDir, filePath)
+        if (!relative || relative.startsWith('..') || path.isAbsolute(relative) || !fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' })
+          res.end('Not found')
+          return
+        }
+        res.writeHead(200, { 'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] || 'application/octet-stream' })
+        fs.createReadStream(filePath).pipe(res)
+      } catch (error) {
+        res.writeHead(500)
+        res.end(String(error))
+      }
+    })
+    server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port }))
+    server.on('error', reject)
+  })
+}
+
 /** 创建应用窗口。 */
-function createMainWindow() {
+async function createMainWindow() {
   const window = new BrowserWindow({
     width: 1440,
     height: 960,
     minWidth: 1100,
     minHeight: 760,
+    backgroundColor: '#f8fafc',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -76,13 +139,33 @@ function createMainWindow() {
     },
   })
   mainWindow = window
-  window.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
-  window.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-    dialog.showErrorBox('页面加载失败', `${errorDescription}（错误码：${errorCode}）`)
+  const indexHtml = path.join(getDistDir(), 'index.html')
+  window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    writeLoadLog(`[${level}] ${message} (${sourceId}:${line})`)
+  })
+  window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    writeLoadLog(`fail-load ${errorCode} ${errorDescription} ${validatedURL || indexHtml}`)
+    dialog.showErrorBox('页面加载失败', `${errorDescription}（错误码：${errorCode}）\n${validatedURL || indexHtml}`)
+  })
+  window.webContents.on('did-finish-load', async () => {
+    try {
+      const info = await window.webContents.executeJavaScript('({url: location.href, title: document.title, root: (document.getElementById("root") && document.getElementById("root").innerHTML.length) || 0})')
+      writeLoadLog(`loaded ${JSON.stringify(info)}`)
+    } catch (error) {
+      writeLoadLog(`inspect-failed ${error}`)
+    }
   })
   window.webContents.on('render-process-gone', (_event, details) => {
+    writeLoadLog(`renderer-gone ${details.reason}`)
     dialog.showErrorBox('页面进程异常', `界面进程已退出：${details.reason}`)
   })
+  if (app.isPackaged) {
+    await window.loadFile(indexHtml)
+  } else {
+    if (!distServer) distServer = await startDistServer()
+    writeLoadLog(`dist-server http://127.0.0.1:${distServer.port}/`)
+    await window.loadURL(`http://127.0.0.1:${distServer.port}/`)
+  }
 }
 
 /** 将自动化过程实时发送到主界面。 */
@@ -106,6 +189,7 @@ function createChineseMenu() {
 
 /** 调用硅基流动视觉接口并提取字段与表格。 */
 async function recognizeImage(_event, payload) {
+  await ensureLicensed()
   var savedSettings = getOcrSettings()
   var apiKeys = normalizeApiKeys([
     payload.apiKey,
@@ -113,11 +197,19 @@ async function recognizeImage(_event, payload) {
     process.env.SILICONFLOW_API_KEYS,
     process.env.SILICONFLOW_API_KEY,
   ])
-  return requestVisionOcr({
-    dataUrl: payload.dataUrl,
-    apiKeys,
-    model: payload.model || savedSettings.model,
-  })
+  try {
+    writeLoadLog(`ocr start keys=${apiKeys.length} chars=${String(payload.dataUrl || '').length}`)
+    var result = await requestVisionOcr({
+      dataUrl: payload.dataUrl,
+      apiKeys,
+      model: payload.model || savedSettings.model,
+    })
+    writeLoadLog(`ocr done rows=${(result.table && result.table.rows || []).length} columns=${JSON.stringify((result.table && result.table.columns || []).slice(-8))} row0=${JSON.stringify((result.table && result.table.rows || [])[0])}`)
+    return result
+  } catch (error) {
+    writeLoadLog(`ocr fail ${error instanceof Error ? error.message : String(error)}`)
+    throw error
+  }
 }
 
 /** 保存 OCR 密钥和模型，并只返回不含敏感信息的摘要。 */
@@ -137,6 +229,7 @@ function loadOcrConfiguration() {
 
 /** 将 OCR 表格结果保存为 XLSX 文件。 */
 async function exportOcrExcel(_event, payload) {
+  await ensureLicensed()
   var defaultName = String(payload.fileName || 'OCR识别结果').replace(/[\\/:*?"<>|]/g, '_')
   var saveResult = await dialog.showSaveDialog({
     title: '导出 OCR 识别结果',
@@ -580,6 +673,7 @@ async function runBrowserFill(_event, incoming) {
 
 /** 执行自动化并记录失败原因。 */
 async function fillBrowser(event, payload) {
+  await ensureLicensed()
   try {
     return await runBrowserFill(event, payload)
   } catch (error) {
@@ -595,6 +689,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('ocr:export-excel', exportOcrExcel)
   ipcMain.handle('browser:fill', fillBrowser)
   ipcMain.handle('browser:clear-template', clearWorkflowTemplate)
+
+  // 卡密与一机一码授权 IPC
+  ipcMain.handle('license:get-machine-id', () => getLicenseManager().getMachineId())
+  ipcMain.handle('license:get-status', () => ({ active: true, message: '卡密功能已关闭', remainingText: '已关闭' }))
+  ipcMain.handle('license:get-config', () => getLicenseManager().getConfig())
+  ipcMain.handle('license:set-server-url', (_event, url) => getLicenseManager().setServerUrl(url))
+  ipcMain.handle('license:activate', (_event, payload) => getLicenseManager().activate(payload.code, payload.serverUrl))
+  ipcMain.handle('license:clear', () => getLicenseManager().clear())
   if (process.env.AIAUTO_FIXTURE_TEST === '1') {
     try {
       var result = await runBrowserFill(null, {
@@ -621,8 +723,13 @@ app.whenReady().then(async () => {
     }
     return
   }
-  createChineseMenu()
-  createMainWindow()
+  try {
+    createChineseMenu()
+    await createMainWindow()
+  } catch (error) {
+    writeLoadLog(`whenReady ${error && error.stack || error}`)
+    dialog.showErrorBox('启动失败', String(error && error.stack || error))
+  }
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createMainWindow() })
 })
 
