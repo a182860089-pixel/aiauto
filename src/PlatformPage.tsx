@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { parseClassifiedRowsFromExcel } from './ocrExcel'
 import {
-  describeSkippedInpatientRows,
-  getPlatformSkipReason,
   preparePlatformPreviewRows,
   selectInpatientFillRecords,
   forceRowsAsInpatient,
@@ -84,8 +82,8 @@ function createPlatformDemoRows(): ClassifiedPatientRow[] {
       generalDate: '2026-08-02',
       sourceImage: 'clinic_record_01.png',
       confidence: 'high',
-      inferredReason: '示例：非住院，将跳过',
-      checked: false,
+      inferredReason: '示例：门诊记录也可填入',
+      checked: true,
       remarks: '',
       imageFile: 'clinic_record_01.png',
       rawSourceRow: {},
@@ -110,8 +108,8 @@ function createPlatformDemoRows(): ClassifiedPatientRow[] {
       generalDate: '2026-08-12',
       sourceImage: 'his_inpatient_list.png',
       confidence: 'low',
-      inferredReason: '示例：缺诊断，将跳过',
-      checked: false,
+      inferredReason: '示例：缺诊断也可填入',
+      checked: true,
       remarks: '',
       imageFile: 'his_inpatient_list.png',
       rawSourceRow: {},
@@ -151,7 +149,7 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
   var [excelName, setExcelName] = useState('')
   var [excelRows, setExcelRows] = useState<ClassifiedPatientRow[]>([])
   var [workingRows, setWorkingRows] = useState<ClassifiedPatientRow[]>(() => preparePlatformPreviewRows(createPlatformDemoRows()))
-  var [previewTab, setPreviewTab] = useState<'全部' | '将填入' | '将跳过'>('全部')
+  var [previewTab, setPreviewTab] = useState<'全部' | '将填入'>('全部')
   var [busy, setBusy] = useState(false)
   var [status, setStatus] = useState('已载入示例预览，可改选 Excel 或使用识别页结果')
   var [automationLogs, setAutomationLogs] = useState<Array<{ message: string; time: string }>>([])
@@ -171,15 +169,8 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
     setStatus(`已使用当前识别结果，共 ${ocrRows.length} 行`)
   }, [dataSource, ocrRows])
 
-  var fillableRows = useMemo(
-    () => workingRows.filter((row) => getPlatformSkipReason(row) === ''),
-    [workingRows],
-  )
-  var skippedRows = useMemo(
-    () => workingRows.filter((row) => getPlatformSkipReason(row) !== ''),
-    [workingRows],
-  )
-  var visibleRows = previewTab === '将填入' ? fillableRows : previewTab === '将跳过' ? skippedRows : workingRows
+  var fillableRows = workingRows
+  var visibleRows = previewTab === '将填入' ? workingRows.filter((row) => row.checked) : workingRows
   var selectedFillable = selectInpatientFillRecords(workingRows)
 
   var saveLogin = () => {
@@ -234,14 +225,9 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
   }
 
   var changeRowCategory = (row: ClassifiedPatientRow, category: ClassifiedPatientRow['category']) => {
-    setWorkingRows((current) => current.map((currentRow) => {
-      if (currentRow.id !== row.id) return currentRow
-      if (category === '住院病种记录') {
-        var next = { ...currentRow, category, checked: false, isManualModified: true }
-        return { ...next, checked: getPlatformSkipReason(next) === '' }
-      }
-      return { ...currentRow, category, checked: false, isManualModified: true }
-    }))
+    setWorkingRows((current) => current.map((currentRow) => (
+      currentRow.id === row.id ? { ...currentRow, category, isManualModified: true } : currentRow
+    )))
   }
 
   var enableInpatientFill = () => {
@@ -249,8 +235,7 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
     var nextRows = forceRowsAsInpatient(workingRows)
     setWorkingRows(nextRows)
     setPreviewTab('全部')
-    var fillable = nextRows.filter((row) => getPlatformSkipReason(row) === '').length
-    setStatus(`已按住院病种重新校正 ${nextRows.length} 行，其中 ${fillable} 行可填入；请核对后点击“登录平台并开始填入”`)
+    setStatus(`已按住院病种重新校正 ${nextRows.length} 行，全部可填入；请核对后点击“登录平台并开始填入”`)
   }
 
   var fillBrowser = async () => {
@@ -261,11 +246,8 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
     }
     if (!login.loginName || !login.loginPassword) return setStatus('请先填写平台账号和密码')
     if (!selectedFillable.length) {
-      var skipped = describeSkippedInpatientRows(workingRows)
       if (!workingRows.length) return setStatus('请先使用当前识别结果，或选择已导出的 Excel')
-      if (skipped.checkedCount === 0) return setStatus('请先勾选要填入的行')
-      if (skipped.inpatientCount === 0) return setStatus(`已勾选 ${skipped.checkedCount} 行，但没有住院病种记录可填入`)
-      return setStatus(`已勾选 ${skipped.inpatientCount} 条住院病种，但有 ${skipped.skippedIncomplete} 条缺少姓名、住院号或诊断`)
+      return setStatus('请先勾选要填入的行')
     }
     setBusy(true)
     setStatus(`正在打开平台并填入 ${selectedFillable.length} 条住院病种记录…`)
@@ -364,7 +346,7 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
             <input type="radio" name="fill-scope" checked={fillScope === 'inpatient'} onChange={() => setFillScope('inpatient')} />
             <span>
               <strong>仅住院病种记录</strong>
-              <small>门诊、临床技术、手写大病历进入「将跳过」；若 OCR 把住院列表识别成门诊，可点击表格上方“按住院病种启用填入”</small>
+              <small>当前按住院病种表单填入；类别不对时可在表格里改，或点“按住院病种启用填入”</small>
             </span>
           </label>
           <label className={`scope-option ${fillScope === 'excel' ? 'active' : ''}`}>
@@ -421,9 +403,9 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
             </div>
             <div className="card-sub">
               {dataSource === 'excel' && excelName ? excelName : dataSource === 'ocr' ? '来自识别工作台或示例预览' : '未选择文件'}
-              {' · '}共 {workingRows.length} 行 · 住院可填 {fillableRows.length} · 跳过 {skippedRows.length}
+              {' · '}共 {workingRows.length} 行 · 可填 {fillableRows.length}
               {' · '}
-              {fillScope === 'inpatient' ? '仅住院病种会填入' : '按类别预览，仍只填住院病种'}
+              {fillScope === 'inpatient' ? '全部勾选行都会填入' : '按类别预览，勾选行都会填入'}
             </div>
           </div>
 
@@ -433,10 +415,7 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
                 全部 ({workingRows.length})
               </button>
               <button type="button" className={`tab-btn ${previewTab === '将填入' ? 'active' : ''}`} onClick={() => setPreviewTab('将填入')}>
-                将填入 ({fillableRows.length})
-              </button>
-              <button type="button" className={`tab-btn ${previewTab === '将跳过' ? 'active' : ''}`} onClick={() => setPreviewTab('将跳过')}>
-                将跳过 ({skippedRows.length})
+                将填入 ({selectedFillable.length})
               </button>
             </div>
             <div className="batch-selection-info">
@@ -485,15 +464,12 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleRows.map((row) => {
-                    var reason = getPlatformSkipReason(row)
-                    return (
+                  {visibleRows.map((row) => (
                       <tr key={row.id} className={row.checked ? 'row-selected' : ''}>
                         <td>
                           <input
                             type="checkbox"
                             checked={row.checked}
-                            disabled={reason !== ''}
                             onChange={(event) => toggleRow(row.id, event.target.checked)}
                           />
                         </td>
@@ -517,13 +493,10 @@ export default function PlatformPage({ ocrRows }: PlatformPageProps) {
                         <td>{row.department}</td>
                         <td>{row.admissionDate || row.date}</td>
                         <td>
-                          {reason === '' ? <span className="status-pill success">可填</span> : (
-                            <span className="status-pill warning">{reason === '非住院' ? '跳过·非住院' : '跳过·缺字段'}</span>
-                          )}
+                          <span className="status-pill success">可填</span>
                         </td>
                       </tr>
-                    )
-                  })}
+                    ))}
                 </tbody>
               </table>
             )}

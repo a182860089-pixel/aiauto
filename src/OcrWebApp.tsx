@@ -12,7 +12,7 @@ import {
   type UploadedImageItem,
 } from './ocrBrowser'
 import { exportClassifiedRowsToExcel } from './ocrExcel'
-import { describeSkippedInpatientRows, selectInpatientFillRecords } from './platformFields'
+import { selectInpatientFillRecords } from './platformFields'
 import { mergeDepartmentOptions, rememberDepartment } from './templateMapping'
 
 var STORAGE_KEY = 'ocr-web-api-key'
@@ -456,10 +456,7 @@ export default function OcrWebApp({ embedded, onRowsChange, onGoToPlatform }: Oc
     }
     if (!login.loginName || !login.loginPassword) return setStatus('请先填写平台账号和密码')
     if (!nextRecords.length) {
-      var skipped = describeSkippedInpatientRows(sourceRows)
-      if (skipped.checkedCount === 0) return setStatus('请先勾选要填入的行')
-      if (skipped.inpatientCount === 0) return setStatus(`已勾选 ${skipped.checkedCount} 行，但没有住院病种记录可填入`)
-      return setStatus(`已勾选 ${skipped.inpatientCount} 条住院病种，但有 ${skipped.skippedIncomplete} 条缺少姓名、住院号或诊断`)
+      return setStatus('请先勾选要填入的行')
     }
     setStatus(`正在打开平台并填入 ${nextRecords.length} 条住院病种记录…`)
     try {

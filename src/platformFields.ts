@@ -24,21 +24,17 @@ function text(value: unknown) {
 }
 
 /**
- * 将住院病种行转换成平台新增表单字段。缺姓名、住院号或诊断时返回空。
+ * 将住院病种行转换成平台新增表单字段。
  */
 export function toInpatientPlatformFields(row: ClassifiedPatientRow): PlatformRecordFields | null {
-  if (row.category !== '住院病种记录') return null
   const patientName = text(row.patientName)
-  const hospitalNo = text(row.hospitalNo)
-  const diagnosis = text(row.tcmDiag)
-  const diagnosisWestern = text(row.wmDiag)
-  if (!patientName || PLACEHOLDER_NAMES.has(patientName) || !hospitalNo || (!diagnosis && !diagnosisWestern)) return null
+  const hospitalNo = text(row.hospitalNo || row.recordNo || row.outpatientNo)
   return {
     PatientName: patientName,
     HospitalNo: hospitalNo,
-    Diagnosis: diagnosis,
-    DiagnosisWestern: diagnosisWestern,
-    CreationTime: text(row.admissionDate),
+    Diagnosis: text(row.tcmDiag),
+    DiagnosisWestern: text(row.wmDiag),
+    CreationTime: text(row.admissionDate || row.date),
     Department: text(row.department),
     VisitRole: text(row.visitType) || '主管',
     Remarks: text(row.remarks),
@@ -46,7 +42,7 @@ export function toInpatientPlatformFields(row: ClassifiedPatientRow): PlatformRe
 }
 
 /**
- * 只接受已勾选、可填入的住院病种记录，供登录后逐条添加并确定。
+ * 只接受已勾选行，供登录后逐条添加并确定。全部可录入，不因类别或缺字段跳过。
  */
 export function selectInpatientFillRecords(rows: ClassifiedPatientRow[]): PlatformFillRecord[] {
   return rows.flatMap((row) => {
@@ -73,20 +69,19 @@ export function describeSkippedInpatientRows(rows: ClassifiedPatientRow[]) {
 export type PlatformSkipReason = '' | '非住院' | '缺字段'
 
 /**
- * 判断一行能否作为住院病种填入。不看勾选状态。
+ * 判断一行能否填入。全部可录入，不再跳过。
  */
-export function getPlatformSkipReason(row: ClassifiedPatientRow): PlatformSkipReason {
-  if (row.category !== '住院病种记录') return '非住院'
-  return toInpatientPlatformFields(row) ? '' : '缺字段'
+export function getPlatformSkipReason(_row: ClassifiedPatientRow): PlatformSkipReason {
+  return ''
 }
 
 /**
- * 平台预览用：可填行默认勾选，跳过行默认不勾选。
+ * 平台预览用：全部默认勾选，均可填入。
  */
 export function preparePlatformPreviewRows(rows: ClassifiedPatientRow[]): ClassifiedPatientRow[] {
   return rows.map((row) => ({
     ...row,
-    checked: getPlatformSkipReason(row) === '',
+    checked: true,
   }))
 }
 
@@ -94,17 +89,13 @@ export function preparePlatformPreviewRows(rows: ClassifiedPatientRow[]): Classi
  * 只有图片对应的住院号列有值时才生成住院号；记录类别由人工指定，但号码和诊断仍保持原列来源。
  */
 export function forceRowsAsInpatient(rows: ClassifiedPatientRow[]): ClassifiedPatientRow[] {
-  return rows.map((row) => {
-    const hospitalNo = text(row.hospitalNo)
-    const next = {
-      ...row,
-      category: '住院病种记录' as const,
-      hospitalNo,
-      checked: false,
-      isManualModified: true,
-    }
-    return { ...next, checked: getPlatformSkipReason(next) === '' }
-  })
+  return rows.map((row) => ({
+    ...row,
+    category: '住院病种记录' as const,
+    hospitalNo: text(row.hospitalNo || row.recordNo),
+    checked: true,
+    isManualModified: true,
+  }))
 }
 
 export type OcrTableSource = {

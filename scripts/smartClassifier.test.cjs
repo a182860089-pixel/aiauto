@@ -160,3 +160,52 @@ test('smartClassifier: 表头带 ICD 后缀或右侧列也能取到中西医诊�
   assert.equal(rawTcm, '(A03.06.04.05)腰痛:寒湿痹阻证')
 })
 
+test('smartClassifier: 表头截断时仍能取到姓名住院号日期和就诊角色', () => {
+  const normalizeHeader = (value) => String(value ?? '').replace(/[\s　:_：/\\()（）\[\]【】.-]/g, '').toLowerCase()
+  const headerMatches = (key, alias) => {
+    const k = normalizeHeader(key)
+    const a = normalizeHeader(alias)
+    if (!k || !a) return false
+    if (k === a) return true
+    if (k.length < 2 || a.length < 2) return false
+    return k.startsWith(a) || a.startsWith(k)
+  }
+  const getCell = (source, aliases, accept) => {
+    const keys = Object.keys(source).filter((key) => aliases.some((alias) => headerMatches(key, alias)))
+    for (const key of keys) {
+      const value = String(source[key] ?? '').trim()
+      if (!value) continue
+      if (accept && !accept(value)) continue
+      return value
+    }
+    return ''
+  }
+  const looksLikePersonName = (text) => {
+    const value = String(text || '').trim().replace(/\s+/g, '')
+    if (['主管', '参观', '初诊', '复诊', '确诊', '中医', '西医', '门诊', '住院'].includes(value)) return false
+    if (/(科|区|院|病区|病)$/.test(value)) return false
+    return /^[\u4e00-\u9fa5·]{2,4}$/.test(value)
+  }
+  const looksLikeRecordNo = (text) => /^\d{5,}$/.test(String(text || '').trim())
+  const parseVisitRole = (text) => {
+    const value = String(text || '').trim()
+    if (value.includes('参观')) return '参观'
+    if (value.includes('主管')) return '主管'
+    return ''
+  }
+  const source = {
+    姓名: '龚庆华',
+    住院: '376813',
+    时间: '2026-07-24...',
+    主管: '主管',
+    挂号单: '260012345678',
+    西医诊: '(M47.921)颈椎病',
+    中医诊断: '(A03.06.04.05)颈椎病:风寒湿痹阻证',
+  }
+  assert.equal(getCell(source, ['姓名', '患者姓名', '病人姓名'], looksLikePersonName), '龚庆华')
+  assert.equal(getCell(source, ['住院号', '住院病案号', 'hospitalNo'], looksLikeRecordNo), '376813')
+  assert.match(getCell(source, ['日期', '时间']), /2026-07-24/)
+  assert.equal(parseVisitRole(getCell(source, ['主管/参观', '主管参观'])), '主管')
+  assert.notEqual(getCell(source, ['住院号', '住院'], looksLikeRecordNo), '260012345678')
+})
+

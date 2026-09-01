@@ -98,6 +98,59 @@ function findSourceKey(source: Record<string, string>, aliases: string[]) {
   return Object.keys(source).find((key) => aliases.some((alias) => headerMatches(key, alias))) || ''
 }
 
+function getCell(source: Record<string, string>, aliases: string[], accept?: (value: string) => boolean) {
+  var keys = Object.keys(source).filter((key) => aliases.some((alias) => headerMatches(key, alias)))
+  for (var index = 0; index < keys.length; index += 1) {
+    var value = String(source[keys[index]] ?? '').trim()
+    if (!value || isPlaceholderText(value)) continue
+    if (accept && !accept(value)) continue
+    return value
+  }
+  return ''
+}
+
+function diagnosisKeySet(source: Record<string, string>) {
+  return new Set([findSourceKey(source, TCM_DIAG_ALIASES), findSourceKey(source, WM_DIAG_ALIASES)].filter(Boolean))
+}
+
+function looksLikePersonName(text: string) {
+  var value = String(text || '').trim().replace(/\s+/g, '')
+  if (!value || isPlaceholderText(value)) return false
+  if (['主管', '参观', '初诊', '复诊', '确诊', '中医', '西医', '门诊', '住院'].includes(value)) return false
+  if (/[（(]\s*[A-Za-z]/.test(value)) return false
+  if (/(科|区|院|病区|病)$/.test(value)) return false
+  return /^[\u4e00-\u9fa5·]{2,4}$/.test(value)
+}
+
+function looksLikeRecordNo(text: string) {
+  var value = String(text || '').trim().replace(/\s+/g, '')
+  if (!value || isPlaceholderText(value)) return false
+  if (/\d{4}[-/.]\d{1,2}/.test(value)) return false
+  return /^\d{5,}$/.test(value)
+}
+
+function firstNonDiagValue(source: Record<string, string>, accept: (value: string) => boolean) {
+  var skip = diagnosisKeySet(source)
+  var keys = Object.keys(source)
+  for (var index = 0; index < keys.length; index += 1) {
+    if (skip.has(keys[index])) continue
+    if (/挂号/.test(normalizeHeader(keys[index]))) continue
+    var value = String(source[keys[index]] ?? '').trim()
+    if (accept(value)) return value
+  }
+  return ''
+}
+
+function parseVisitRole(text: string): ClassifiedPatientRow['visitType'] {
+  var value = String(text || '').trim()
+  if (value.includes('参观')) return '参观'
+  if (value.includes('主管')) return '主管'
+  if (value.includes('复诊') || value === '复') return '复诊'
+  if (value.includes('初诊') || value === '初') return '初诊'
+  if (value.includes('确诊')) return '确诊'
+  return ''
+}
+
 /**
  * 判断单元格是否像西医诊断：ICD 括号编码，或常见西医病名。
  */
@@ -197,16 +250,19 @@ export function inferPatientRow(
 ): ClassifiedPatientRow {
   var id = `row-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`
 
-  // 1. 抽取基础字段
-  var getVal = (aliases: string[]): string => {
-    var key = Object.keys(source).find((k) => aliases.some((a) => normalizeHeader(a) === normalizeHeader(k)))
-    return key ? String(source[key] ?? '').trim() : ''
-  }
+  // 1. 抽取基础字段（表头截断时用前缀匹配；诊断列仍走 pickRawDiagnoses）
+  var getVal = (aliases: string[], accept?: (value: string) => boolean): string => getCell(source, aliases, accept)
 
-  var patientName = getVal(['姓名', '患者姓名', '病人姓名', '患者', '病人', 'name'])
-  var hospitalNo = getVal(['住院号', '住院病案号', '住院号码', '住院编号', '住院病历号', '住院患者号', '住院登记号', 'hospitalNo'])
-  var outpatientNo = getVal(['门诊号', '门诊号码', 'outpatientNo'])
-  var medicalRecordNo = getVal(['病历号', '病案号', '病案编号', '医疗记录号', 'medicalRecordNo'])
+  var patientName = getVal(['姓名', '患者姓名', '病人姓名', '患者', '病人', 'name'], looksLikePersonName)
+  if (!patientName) patientName = firstNonDiagValue(source, looksLikePersonName)
+
+  var hospitalNo = getVal(['住院号', '住院病案号', '住院号码', '住院编号', '住院病历号', '住院患者号', '住院登记号', 'hospitalNo'], looksLikeRecordNo)
+  var outpatientNo = getVal(['门诊号', '门诊号码', 'outpatientNo'], looksLikeRecordNo)
+  var medicalRecordNo = getVal(['病历号', '病案号', '病案编号', '医疗记录号', 'medicalRecordNo'], looksLikeRecordNo)
+  if (!hospitalNo && !outpatientNo && !medicalRecordNo) {
+    var fallbackNo = firstNonDiagValue(source, looksLikeRecordNo)
+    if (fallbackNo) hospitalNo = fallbackNo
+  }
 
   // 兼容 HIS 截断表头；西医诊断在中医诊断左侧，表头对不上时按列位置和 ICD 形态补回。
   var pickedDiags = pickRawDiagnoses(source)
@@ -219,9 +275,9 @@ export function inferPatientRow(
   var admissionDate = getVal(['入院日期', '住院日期', '入院时间', '住院时间', 'admissionDate'])
   var visitDate = getVal(['就诊日期', '接诊日期', '就诊时间', 'visitDate'])
   var operationDate = getVal(['操作日期', '手术日期', '治疗日期', '操作时间', 'operationDate'])
-  var generalDate = getVal(['日期', '时间', 'date', '编辑日期'])
+  var generalDate = getVal(['日期', '时间', 'date', '编辑日期', '就诊时间', '入院时间'])
   var urgentOrFollowup = getVal(['急复', '初复诊', '初诊/复诊', '就诊类型'])
-  var docOrVisitType = getVal(['主管/参观', '带教形式', '医生角色'])
+  var docOrVisitType = getVal(['主管/参观', '带教形式', '医生角色', '就诊角色', '主管参观'])
   var deptInRow = getVal(['所在科室', '科室', '就诊科室', '入院科室', '执行科室'])
   var remarks = getVal(['备注', 'remarks'])
 
@@ -252,12 +308,14 @@ export function inferPatientRow(
   var operationDateClean = cleanDateText(operationDate)
   var generalDateClean = cleanDateText(generalDate)
 
-  // 就诊类型只读取对应列原文，不用住院号或其他列推断。
-  var visitType: ClassifiedPatientRow['visitType'] = ''
-  if (docOrVisitType.includes('参观')) visitType = '参观'
-  else if (docOrVisitType.includes('主管')) visitType = '主管'
-  if (urgentOrFollowup.includes('复') || urgentOrFollowup.includes('复诊')) visitType = '复诊'
-  else if (urgentOrFollowup.includes('初') || urgentOrFollowup.includes('初诊')) visitType = '初诊'
+  // 就诊类型优先读角色列原文；表头对不上时再从非诊断单元格识别主管/参观/初复诊。
+  var visitType: ClassifiedPatientRow['visitType'] = parseVisitRole(urgentOrFollowup) || parseVisitRole(docOrVisitType)
+  if (!visitType) visitType = parseVisitRole(firstNonDiagValue(source, (value) => Boolean(parseVisitRole(value))))
+
+  if (!visitDateClean && !admissionDateClean && !operationDateClean && !generalDateClean) {
+    var fallbackDate = firstNonDiagValue(source, (value) => Boolean(cleanDateText(value).match(/\d{4}-\d{1,2}-\d{1,2}/)))
+    generalDateClean = cleanDateText(fallbackDate)
+  }
 
   var recordNo = hospitalNo || outpatientNo || medicalRecordNo || ''
 

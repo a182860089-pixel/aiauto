@@ -27,13 +27,14 @@ function buildOcrPrompt() {
     '请识别图片中的全部可见文字和表格，严格只返回 JSON 对象，不要 Markdown，不要解释。',
     'table.columns 必须按图片表头从左到右逐字输出，不能改名、合并或漏列；若表头因宽度被截断，保留可见表头文字。',
     'table.rows 只输出数据行，每行长度必须与 columns 完全一致，单元格按列位置对应。',
+    '第一张图是完整表格，必须从左到右读出全部列，重点包括姓名、住院号/门诊号、日期/时间、主管/参观；这些左侧列禁止整列留空。',
     '重点读取右侧诊断区：西医诊断在中医诊断左边，两列必须分别读取，禁止合并、漏列或互相复制。',
     '西医诊断单元格常见格式是“(ICD编码)病名”，例如 (M47.921)颈椎病、(G47.001)失眠、(M51.202)腰椎间盘突出；编码和后面的中文病名都要读出，禁止只填编码，禁止整列留空。',
     '中医诊断在最右侧，常见格式是“(编码)病名:证型”或“(编码)病名-证型”，例如 (A03.06.04.05)颈椎病:风寒湿痹阻证。',
     '若表头被截成“西医诊”“中医诊”，仍按这两列从左到右对应西医诊断、中医诊断。',
     '诊断列即使字小、列窄、表头被截断，也必须逐行读出编码和中文病名/证型；禁止把西医诊断或中医诊断整列留空。',
     '重点读取日期：图片里的“时间/日期/就诊时间/入院时间”列要读出可见的 YYYY-MM-DD，单元格后面的省略号不影响日期。',
-    '每个单元格只能填写图片中该单元格实际看见的文字。非诊断单元格看不清时填空字符串；不要使用“图片未识别”、YYYY-MM-DD、YYYY-M、示例文字或占位符。',
+    '每个单元格只能填写图片中该单元格实际看见的文字。姓名、住院号、日期、主管/参观以第一张完整表格为准；只有第一张图对应单元格确实没有文字时才填空字符串。不要使用“图片未识别”、YYYY-MM-DD、YYYY-M、示例文字或占位符。',
     '挂号单/挂号流水号与门诊号是不同字段，必须按各自表头读取，禁止用挂号单替代门诊号。不要根据姓名、上一行或其他行补齐病历号。',
     'rawText 保留图片中可见文字，fields 用于无表格图片的键值字段。',
     '返回结构：{"rawText":"","fields":{"patientName":"","gender":"","age":"","admissionDate":"","diagnosis":"","chiefComplaint":"","course":"","treatment":""},"table":{"columns":["图片中的表头"],"rows":[["单元格内容"]]}}。普通页面没有表格时 table.columns 和 table.rows 返回空数组。',
@@ -365,6 +366,7 @@ function buildOcrBody(model, dataUrl, rightDataUrl) {
   if (rightDataUrl) {
     content.push({ type: 'text', text: '第二张图是同一张表格的右侧放大，专门读取西医诊断和中医诊断。每一行都要把这两列填回 table.rows，编码和中文病名/证型都要保留，禁止整列留空。' })
     content.push({ type: 'image_url', image_url: { url: rightDataUrl } })
+    content.push({ type: 'text', text: '请把第一张图的姓名、住院号、日期、主管/参观与第二张图的中西医诊断合并进同一张表；禁止因第二张图裁切而清空左侧列。' })
   }
   return JSON.stringify({
     model: model || DEFAULT_OCR_MODEL,
@@ -426,4 +428,4 @@ async function requestVisionOcr(options) {
   throw new Error(lastError)
 }
 
-module.exports = { DEFAULT_OCR_MODEL, normalizeApiKeys, parseOcrContent, requestVisionOcr }
+module.exports = { DEFAULT_OCR_MODEL, normalizeApiKeys, parseOcrContent, requestVisionOcr, buildOcrPrompt }
