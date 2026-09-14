@@ -124,21 +124,68 @@ function diagnosisKeySet(source: Record<string, string>) {
   return new Set([findSourceKey(source, TCM_DIAG_ALIASES), findSourceKey(source, WM_DIAG_ALIASES)].filter(Boolean))
 }
 
+const HOSPITAL_NO_ALIASES = ['住院号', '登记号', '住院登记号', '就诊登记号', '门诊登记号', '住院号码', '住院编号', '住院病历号', '住院患者号', '住院病案号', 'hospitalNo']
+const OUTPATIENT_NO_ALIASES = ['门诊号', '门诊号码', '挂号号', '挂号码', 'outpatientNo']
+const MEDICAL_NO_ALIASES = ['病历号', '病案号', '病案编号', '医疗记录号', 'medicalRecordNo']
+
+/** HIS 费别：医保/自费/异地医保，不能当住院号或编号。 */
+export function looksLikeFeeType(text: string) {
+  var value = String(text || '').trim().replace(/\s+/g, '')
+  if (!value) return false
+  if (/^(?:异地)?(?:医保|自费|公费)$/.test(value)) return true
+  if (/^(?:城乡居民|居民医保|儿童医保|职工医保|新农合|农合|商业保险|全自费)$/.test(value)) return true
+  if (/(?:医保|自费|新农合|城乡居民)/.test(value) && !/\d/.test(value) && value.length <= 6) return true
+  return false
+}
+
+function looksLikeGender(text: string) {
+  return /^(男|女|男性|女性|未知)$/.test(String(text || '').trim())
+}
+
+function looksLikeDiagnosisText(text: string) {
+  var value = String(text || '').trim()
+  if (!value) return false
+  if (/确诊/.test(value)) return true
+  if (/^\d+\./.test(value) && /[\u4e00-\u9fa5]{2,}/.test(value)) return true
+  return false
+}
+
 function looksLikePersonName(text: string) {
   var value = String(text || '').trim().replace(/\s+/g, '')
   if (!value || isPlaceholderText(value)) return false
+  if (looksLikeGender(value) || looksLikeFeeType(value)) return false
   if (ALL_CATEGORIES.includes(value as PatientCategory)) return false
   if (['主管', '参观', '初诊', '复诊', '确诊', '中医', '西医', '门诊', '住院', '未分类'].includes(value)) return false
   if (/[（(]\s*[A-Za-z]/.test(value)) return false
-  if (/(科|区|院|病区|病)$/.test(value)) return false
+  if (/(科|区|院|病区|病|诊)$/.test(value)) return false
+  if (/门诊|科室|确诊|医保|自费/.test(value)) return false
   return /^[\u4e00-\u9fa5·]{2,4}$/.test(value)
 }
 
 function looksLikeRecordNo(text: string) {
   var value = String(text || '').trim().replace(/\s+/g, '')
   if (!value || isPlaceholderText(value)) return false
+  if (looksLikeFeeType(value) || looksLikeGender(value)) return false
   if (/\d{4}[-/.]\d{1,2}/.test(value)) return false
-  return /^\d{5,}$/.test(value)
+  if (/^\d{5,}$/.test(value)) return true
+  return /^[A-Za-z]{1,6}[-_]?\d{4,}$/.test(value)
+}
+
+function pickValidatedRecordNo(source: Record<string, string>, aliases: string[]) {
+  var exact = getExactCell(source, aliases)
+  if (exact && looksLikeRecordNo(exact)) return exact
+  return getCell(source, aliases, looksLikeRecordNo)
+}
+
+function firstRecordNoValue(source: Record<string, string>) {
+  var keys = Object.keys(source)
+  for (var index = 0; index < keys.length; index += 1) {
+    var header = normalizeHeader(keys[index])
+    if (/费别|性别|诊断|科室|医生|医师|药品|检查|化验|姓名/.test(header)) continue
+    var value = String(source[keys[index]] ?? '').trim()
+    if (looksLikeRecordNo(value)) return value
+  }
+  return ''
 }
 
 function firstNonDiagValue(source: Record<string, string>, accept: (value: string) => boolean) {
@@ -146,7 +193,7 @@ function firstNonDiagValue(source: Record<string, string>, accept: (value: strin
   var keys = Object.keys(source)
   for (var index = 0; index < keys.length; index += 1) {
     if (skip.has(keys[index])) continue
-    if (/挂号/.test(normalizeHeader(keys[index]))) continue
+    if (/挂号|医生|医师|费别|性别/.test(normalizeHeader(keys[index]))) continue
     var value = String(source[keys[index]] ?? '').trim()
     if (accept(value)) return value
   }
@@ -509,19 +556,21 @@ export function inferPatientRow(
   var getVal = (aliases: string[], accept?: (value: string) => boolean): string => getCell(source, aliases, accept)
 
   var patientName = getExactCell(source, ['姓名', '患者姓名', '病人姓名', 'patientName', 'patient_name'])
+  if (!looksLikePersonName(patientName)) patientName = ''
+  if (!patientName) {
+    var genderCell = getExactCell(source, ['性别', 'sex', 'gender'])
+    if (looksLikePersonName(genderCell)) patientName = genderCell
+  }
   if (!patientName) patientName = getVal(['姓名', '患者姓名', '病人姓名', '患者', '病人', 'name'], looksLikePersonName)
   if (!patientName) patientName = firstNonDiagValue(source, looksLikePersonName)
 
-  var hospitalNo = getExactCell(source, ['住院号', '住院病案号', '住院号码', '住院编号', '住院病历号', '住院患者号', '住院登记号', 'hospitalNo'])
-  if (!hospitalNo) hospitalNo = getVal(['住院号', '住院病案号', '住院号码', '住院编号', '住院病历号', '住院患者号', '住院登记号', 'hospitalNo'], looksLikeRecordNo)
-  var outpatientNo = getExactCell(source, ['门诊号', '门诊号码', '挂号号', '挂号码', 'outpatientNo'])
-  if (!outpatientNo) outpatientNo = getVal(['门诊号', '门诊号码', '挂号号', '挂号码', 'outpatientNo'], looksLikeRecordNo)
-  var medicalRecordNo = getExactCell(source, ['病历号', '病案号', '病案编号', '医疗记录号', 'medicalRecordNo'])
-  if (!medicalRecordNo) medicalRecordNo = getVal(['病历号', '病案号', '病案编号', '医疗记录号', 'medicalRecordNo'], looksLikeRecordNo)
-  if (!hospitalNo && !outpatientNo && !medicalRecordNo) {
-    var fallbackNo = firstNonDiagValue(source, looksLikeRecordNo)
-    if (fallbackNo) {
-      var hasOutpatientHeader = Object.keys(source).some((key) => /挂号|门诊/.test(normalizeHeader(key)))
+  var hospitalNo = pickValidatedRecordNo(source, HOSPITAL_NO_ALIASES)
+  var outpatientNo = pickValidatedRecordNo(source, OUTPATIENT_NO_ALIASES)
+  var medicalRecordNo = pickValidatedRecordNo(source, MEDICAL_NO_ALIASES)
+  if (!hospitalNo && !outpatientNo) {
+    var fallbackNo = firstRecordNoValue(source)
+    if (fallbackNo && fallbackNo !== medicalRecordNo) {
+      var hasOutpatientHeader = Object.keys(source).some((key) => /挂号|门诊号/.test(normalizeHeader(key)))
       if (hasOutpatientHeader) outpatientNo = fallbackNo
       else hospitalNo = fallbackNo
     }
@@ -552,6 +601,9 @@ export function inferPatientRow(
   var visitKind = getVal(['就诊类型', '病人类型', '患者类型'])
   var docOrVisitType = getVal(['主管/参观', '带教形式', '医生角色', '就诊角色', '主管参观'])
   var deptInRow = cleanDepartmentName(getVal(['所在科室', '科室', '就诊科室', '接诊科室', '入院科室', '执行科室']))
+  if (looksLikeDiagnosisText(deptInRow) || looksLikeWesternDiagCell(deptInRow) || looksLikeFeeType(deptInRow) || looksLikeRecordNo(deptInRow) || looksLikeGender(deptInRow)) {
+    deptInRow = ''
+  }
   var remarks = getVal(['备注', 'remarks'])
 
   // 所有字段保留 OCR 对应单元格的原文，不把类型单字从号码列移走。

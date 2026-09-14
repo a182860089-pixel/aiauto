@@ -1,3 +1,4 @@
+import { dropIncompleteOcrColumns } from './ocrColumns'
 export const DEFAULT_OCR_MODEL = 'Qwen/Qwen3-VL-8B-Instruct'
 
 type OcrResult = {
@@ -29,6 +30,8 @@ export function buildOcrPrompt() {
     '只识别图片中看得见的 HIS/病历表格。严格返回 JSON，不要 Markdown，不要解释。',
     'columns 必须按图片表头从左到右逐字输出，不能改名、漏列、合并列；若表头因宽度被截断，保留可见表头文字。',
     'rows 只含数据行，每个 row 必须与 columns 等长，按列位置对应。',
+    '必须读出登记号/住院号列。登记号是纯数字，例如 0003437114、376813；费别是医保/自费/异地医保/城乡居民/儿童医保。禁止把费别写入住院号、登记号、病历号或编号，禁止把登记号改名为病历号，禁止把病案号改名为住院号。',
+    '姓名是患者中文姓名。禁止把男/女、性别、年龄、费别写入姓名。',
     '重点读取右侧诊断区：西医诊断列、中医诊断列必须分别逐行读取，保留括号内编码和后面的诊断文字；禁止把一列的内容复制到另一列。',
     '重点读取日期：图片里的“时间/日期/就诊时间/入院时间”列要读出可见的 YYYY-MM-DD，单元格后面的省略号不影响日期。',
     '每个单元格只能填写图片中该单元格实际看见的文字；看不清时填空字符串，不要猜测、复制上一行、复制其他列或使用示例文字。',
@@ -301,11 +304,17 @@ export async function requestVisionOcr(options: {
     var statusResponse = await fetch(`/ocr-status?id=${encodeURIComponent(jobInfo.id)}`)
     var job = await statusResponse.json()
     if (job.error && job.done) throw new Error(job.error)
-    if (job.done) return {
-      id: jobInfo.id,
-      columns: Array.isArray(job.columns) ? job.columns.map(String) : [],
-      rows: Array.isArray(job.rows) ? job.rows : [],
-      rowCount: job.rowCount || 0,
+    if (job.done) {
+      var cleaned = dropIncompleteOcrColumns(
+        Array.isArray(job.columns) ? job.columns.map(String) : [],
+        Array.isArray(job.rows) ? job.rows : [],
+      )
+      return {
+        id: jobInfo.id,
+        columns: cleaned.columns,
+        rows: cleaned.rows,
+        rowCount: cleaned.rows.length || job.rowCount || 0,
+      }
     }
     await new Promise((resolve) => window.setTimeout(resolve, 700))
     return pollJob()

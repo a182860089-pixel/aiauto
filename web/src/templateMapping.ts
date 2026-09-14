@@ -22,7 +22,7 @@ export const TEMPLATE_HEADER_ALIASES: Record<string, string[]> = {
   记录类别: ['记录类别', '记录类型'],
   所在科室: ['所在科室', '科室', '就诊科室', '入院科室'],
   病人姓名: ['病人姓名', '患者姓名', '姓名', '患者', 'patientName', 'patient_name'],
-  住院号: ['住院号', 'hospitalNo'],
+  住院号: ['住院号', 'hospitalNo', '登记号', '住院登记号', '就诊登记号', '门诊登记号'],
   中医诊断: ['中医诊断', '中医诊', '中医病名', '中医诊断病名'],
   西医诊断: ['西医诊断', '西医诊', '西医病名', '西医诊断病名'],
   '主管/参观': ['主管/参观'],
@@ -158,7 +158,7 @@ export function buildRowIdentity(row: Record<string, string>, columns: string[])
   }
   var id = get(['身份证号'])
   if (id) return `id:${id}`
-  var hospitalNo = get(['住院号'])
+  var hospitalNo = get(['住院号', '登记号', '住院登记号', '就诊登记号', '门诊登记号'])
   if (hospitalNo) return `hospital:${hospitalNo}`
   var name = get(['姓名', '患者姓名', '病人姓名'])
   var date = get(['入院日期', '住院日期', '就诊日期', '日期', '编辑日期'])

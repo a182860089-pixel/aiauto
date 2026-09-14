@@ -120,3 +120,92 @@ test('resolveMixedDiagnoses keeps generated fallback when no TCM names exist', (
   assert.equal(resolved.wm, '结膜炎，角膜损伤')
   assert.equal(resolved.tcm, '暴风客热:风热犯目证')
 })
+
+test('uses HIS 登记号 as 编号 and never takes 费别', () => {
+  const zhang = row({
+    就诊日期: '2024-10-01',
+    就诊时间: '08:54',
+    姓名: '张正绮',
+    性别: '女',
+    年龄: '32岁',
+    登记号: '0003437114',
+    就诊科室: '眼科门诊',
+    诊断: '1.睑腺炎[麦粒肿] 确诊2.针眼 确诊3.肝热证 确诊',
+    医生: '某医生',
+    病案号: '',
+    费别: '异地医保',
+  })
+  assert.equal(zhang.patientName, '张正绮')
+  assert.equal(zhang.hospitalNo, '0003437114')
+  assert.equal(zhang.recordNo, '0003437114')
+  assert.equal(zhang.medicalRecordNo, '')
+  assert.equal(zhang.department, '眼科门诊')
+  assert.equal(zhang.wmDiag, '睑腺炎[麦粒肿]')
+  assert.equal(zhang.tcmDiag, '针眼:肝热证')
+
+  const liu = row({
+    姓名: '刘潇航',
+    性别: '男',
+    登记号: '0003178883',
+    就诊科室: '眼科门诊',
+    诊断: '1.睑板腺功能障碍 确诊',
+    费别: '医保',
+  })
+  assert.equal(liu.hospitalNo, '0003178883')
+  assert.equal(liu.recordNo, '0003178883')
+  assert.notEqual(liu.recordNo, '医保')
+})
+
+test('recovers 登记号 when OCR shifts 费别 into 病历号', () => {
+  const shifted = row({
+    就诊时间: '张正绮',
+    姓名: '女',
+    性别: '32岁',
+    年龄: '0003437114',
+    登记号: '眼科门诊',
+    就诊科室: '1.睑腺炎[麦粒肿] 确诊2.针眼 确诊3.肝热证 确诊',
+    病案号: '异地医保',
+    病历号: '异地医保',
+    费别: '异地医保',
+  })
+  assert.equal(shifted.patientName, '张正绮')
+  assert.equal(shifted.hospitalNo, '0003437114')
+  assert.equal(shifted.recordNo, '0003437114')
+  assert.equal(shifted.medicalRecordNo, '')
+  assert.notEqual(shifted.recordNo, '异地医保')
+  assert.equal(shifted.department, '眼科门诊')
+  assert.equal(shifted.wmDiag, '睑腺炎[麦粒肿]')
+  assert.equal(shifted.tcmDiag, '针眼:肝热证')
+})
+
+test('does not fill 编号 with 费别 when 登记号 is missing', () => {
+  const broken = row({
+    病人姓名: '女',
+    所在科室: '1.睑腺炎[麦粒肿] 确诊2.针眼 确诊3.肝热证 确诊',
+    病历号: '异地医保',
+  })
+  assert.equal(broken.patientName, '')
+  assert.equal(broken.hospitalNo, '')
+  assert.equal(broken.recordNo, '')
+  assert.equal(broken.medicalRecordNo, '')
+  assert.equal(broken.department, '眼科门诊')
+})
+
+test('keeps old 住院号 digits and prefers 登记号 over 病案号', () => {
+  const oldNo = row({
+    病人姓名: '旧号',
+    住院号: '376813',
+  })
+  assert.equal(oldNo.hospitalNo, '376813')
+  assert.equal(oldNo.recordNo, '376813')
+
+  const both = row({
+    姓名: '毕万生',
+    登记号: '0001418414',
+    病案号: '0218677',
+    费别: '医保',
+  })
+  assert.equal(both.hospitalNo, '0001418414')
+  assert.equal(both.recordNo, '0001418414')
+  assert.equal(both.medicalRecordNo, '0218677')
+})
