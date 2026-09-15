@@ -262,187 +262,6 @@ export function splitCombinedHisDiagnosis(text: string): { tcm: string, wm: stri
   return { tcm, wm }
 }
 
-const TCM_DISEASE_NAMES = [
-  '针眼', '时复目痒', '凝脂翳', '白涩症', '圆翳内障', '暴风客热', '天行赤眼',
-  '聚星障', '花翳白陷', '能近怯远', '能远怯近', '视瞻昏渺', '云雾移睛',
-  '睑弦赤烂', '白睛溢血', '瞳神紧小', '青风内障', '绿风内障', '鼻鼽',
-  '胞生痰核', '漏睛', '目劄', '项痹', '消渴', '哮病', '不寐', '物损真睛',
-]
-
-const WM_TO_TCM_RULES = [
-  { keys: ['睑腺炎', '麦粒肿'], tcm: '针眼:肝经风热证' },
-  { keys: ['霰粒肿', '睑板腺囊肿'], tcm: '胞生痰核:痰湿结聚证' },
-  { keys: ['睑板腺功能障碍'], tcm: '白涩症:脾胃湿热证' },
-  { keys: ['变应性结膜炎', '免疫性结膜炎', '过敏性结膜炎'], tcm: '时复目痒:风热犯目证' },
-  { keys: ['过敏性鼻炎', '变应性鼻炎'], tcm: '鼻鼽:风热犯肺证' },
-  { keys: ['丝状角膜炎'], tcm: '白涩症:阴虚夹风证' },
-  { keys: ['角膜炎'], tcm: '聚星障:风热犯目证' },
-  { keys: ['角膜损伤', '角膜上皮'], tcm: '物损真睛:风热犯目证' },
-  { keys: ['结膜下出血'], tcm: '白睛溢血:热伤血络证' },
-  { keys: ['结膜炎'], tcm: '暴风客热:风热犯目证' },
-  { keys: ['干眼症', '干眼'], tcm: '白涩症:肝阴虚证' },
-  { keys: ['白内障'], tcm: '圆翳内障:肝肾阴虚证' },
-  { keys: ['屈光不正', '近视'], tcm: '能近怯远:肝肾不足证' },
-  { keys: ['青光眼'], tcm: '青风内障:肝风上扰证' },
-  { keys: ['高血压'], tcm: '眩晕:肝阳上亢证' },
-  { keys: ['糖尿病'], tcm: '消渴:阴虚燥热证' },
-  { keys: ['颈椎病'], tcm: '项痹:风寒湿痹阻证' },
-  { keys: ['腰椎间盘突出'], tcm: '腰痛:寒湿痹阻证' },
-  { keys: ['失眠'], tcm: '不寐:心肝火旺证' },
-  { keys: ['上呼吸道感染'], tcm: '感冒:风热犯肺证' },
-  { keys: ['支气管哮喘', '哮喘'], tcm: '哮病:痰热壅肺证' },
-  { keys: ['肺炎'], tcm: '风温肺热:痰热壅肺证' },
-  { keys: ['关节炎'], tcm: '痹证:风寒湿痹阻证' },
-  { keys: ['头痛'], tcm: '头痛:肝阳上亢证' },
-  { keys: ['感冒'], tcm: '感冒:风热犯肺证' },
-]
-
-type DiagKind = 'tcm' | 'wm' | 'unknown'
-
-function uniqueKeepOrder(items: Array<string | null | undefined> | null | undefined): string[] {
-  var seen = new Set<string>()
-  var result: string[] = []
-  ;(items || []).forEach((item) => {
-    var value = String(item || '').trim()
-    var key = value.replace(/\s+/g, '')
-    if (!key || seen.has(key)) return
-    seen.add(key)
-    result.push(value)
-  })
-  return result
-}
-
-function hasTcmDiseaseName(text: string): boolean {
-  var value = String(text || '')
-  return TCM_DISEASE_NAMES.some((name) => value.includes(name))
-}
-
-function joinDiagItems(items: string[]): string {
-  return uniqueKeepOrder(items).join('，')
-}
-
-/**
- * 拆 HIS 编号诊断：1.病名 确诊2.病名 确诊
- */
-export function splitDiagnosisItems(text: string): string[] {
-  var value = String(text || '').trim()
-  if (!value) return []
-  var cleanPart = (part: string) => part
-    .replace(/^\d+\s*[.、．]\s*/, '')
-    .replace(/(?:确诊|疑诊|待查|待诊)\s*$/g, '')
-    .replace(/^[,，;；、\s]+|[,，;；、\s]+$/g, '')
-    .trim()
-  var numbered = value.split(/(?:确诊|疑诊|待查|待诊)?\s*(?=\d+\s*[.、．]\s*)/g).map(cleanPart).filter(Boolean)
-  if (numbered.length >= 2) return uniqueKeepOrder(numbered)
-  var comma = value.split(/[,，;；]+/).map(cleanPart).filter(Boolean)
-  if (comma.length >= 2) return uniqueKeepOrder(comma)
-  var single = cleanPart(value)
-  return single ? [single] : []
-}
-
-/**
- * 单条诊断判中医 / 西医。中医病名和证型优先，避免把针眼、白涩症当成西医。
- */
-export function classifyDiagnosisItem(text: string): DiagKind {
-  var value = String(text || '').trim()
-  if (!value || isPlaceholderText(value) || looksLikeTimeOrStatus(value)) return 'unknown'
-  if (hasTcmDiseaseName(value) || /[:：]/.test(value) || /(证|证型|证候)\s*$/.test(value)) return 'tcm'
-  if (/(风寒|风热|湿热|寒湿|气虚|阴虚|阳虚|气阴两虚|痰湿|瘀血|肝郁|心火|肝火|脾虚|肾虚|血瘀|痹阻|肝热|肝阴)/.test(value)) return 'tcm'
-  if (/[（(]\s*[A-Za-z][0-9]/.test(value) && !/(证|证型|证候)/.test(value)) return 'wm'
-  if (looksLikeWesternDiagCell(value)) return 'wm'
-  if (/(?:炎|损伤|障碍|出血|不正|综合征|功能紊乱)(?:\s|$|确诊|\[|（|\()/.test(value)) return 'wm'
-  return 'unknown'
-}
-
-export function isMixedDiagnosisText(text: string): boolean {
-  var items = splitDiagnosisItems(text)
-  if (items.length < 2) return /[（(]\s*[西中]\s*[）)]/.test(String(text || ''))
-  var kinds = new Set(items.map(classifyDiagnosisItem).filter((kind) => kind !== 'unknown'))
-  return kinds.has('tcm') && kinds.has('wm')
-}
-
-/**
- * 按西医病名生成常用中医病名:证型，优先匹配更长的关键词。
- */
-export function generateTcmFromWestern(wm: string): string {
-  var text = String(wm || '').trim()
-  if (!text) return ''
-  var items = splitDiagnosisItems(text)
-  if (!items.length) items = [text]
-  var pairs: Array<{ key: string, tcm: string }> = []
-  WM_TO_TCM_RULES.forEach((rule) => {
-    rule.keys.forEach((key) => pairs.push({ key, tcm: rule.tcm }))
-  })
-  pairs.sort((a, b) => b.key.length - a.key.length)
-  for (var index = 0; index < items.length; index += 1) {
-    var item = items[index]
-    for (var pairIndex = 0; pairIndex < pairs.length; pairIndex += 1) {
-      if (item.includes(pairs[pairIndex].key)) return pairs[pairIndex].tcm
-    }
-  }
-  for (var fallback = 0; fallback < pairs.length; fallback += 1) {
-    if (text.includes(pairs[fallback].key)) return pairs[fallback].tcm
-  }
-  return ''
-}
-
-export function composeTcmDiagnosis(tcmItems: string[], wmText: string): string {
-  var items = uniqueKeepOrder(tcmItems)
-  if (!items.length) return generateTcmFromWestern(wmText)
-  var formatted = items.find((item) => /[:：]/.test(item))
-  if (formatted) return formatted.replace(/：/g, ':')
-  var syndromes = items.filter((item) => /(证|证型|证候)\s*$/.test(item))
-  var diseases = items.filter((item) => !/(证|证型|证候)\s*$/.test(item))
-  var generated = generateTcmFromWestern(wmText)
-  var genParts = generated.split(':')
-  var disease = diseases[0] || genParts[0] || ''
-  var syndrome = syndromes[0] || genParts[1] || ''
-  if (disease && syndrome) return disease + ':' + syndrome
-  if (disease) return generated && generated.startsWith(disease) ? generated : disease
-  if (syndrome) return genParts[0] ? genParts[0] + ':' + syndrome : syndrome
-  return generated
-}
-
-function collectKindedItems(text: string, fallbackKind: DiagKind): Array<{ item: string, kind: 'tcm' | 'wm' }> {
-  var items = splitDiagnosisItems(text)
-  return items.map((item) => {
-    var kind: DiagKind = classifyDiagnosisItem(item)
-    if (kind === 'unknown') kind = fallbackKind
-    return { item, kind }
-  }).filter((entry): entry is { item: string, kind: 'tcm' | 'wm' } => entry.kind === 'tcm' || entry.kind === 'wm')
-}
-
-/**
- * 中西医混写时抽出西医诊断；中医优先用原文病名/证型，没有则按西医自动生成。
- */
-export function resolveMixedDiagnoses(tcm: string, wm: string, general = ''): { tcm: string, wm: string } {
-  var tcmText = rejectTimeLike(String(tcm || '').trim())
-  var wmText = rejectTimeLike(String(wm || '').trim())
-  var generalText = rejectTimeLike(String(general || '').trim())
-  var tcmCollected: string[] = []
-  var wmCollected: string[] = []
-  function absorb(text: string, fallbackKind: DiagKind) {
-    collectKindedItems(text, fallbackKind).forEach((entry) => {
-      if (entry.kind === 'tcm') tcmCollected.push(entry.item)
-      else wmCollected.push(entry.item)
-    })
-  }
-  absorb(wmText, 'wm')
-  absorb(tcmText, isMixedDiagnosisText(tcmText) ? 'unknown' : 'tcm')
-  if ((!tcmCollected.length || !wmCollected.length) && generalText && generalText !== tcmText && generalText !== wmText) {
-    absorb(generalText, 'unknown')
-  } else if (!tcmCollected.length && !wmCollected.length && generalText) {
-    absorb(generalText, 'unknown')
-  }
-  var resolvedWm = joinDiagItems(wmCollected)
-  var resolvedTcm = composeTcmDiagnosis(tcmCollected, resolvedWm)
-  if (!resolvedTcm && resolvedWm) resolvedTcm = generateTcmFromWestern(resolvedWm)
-  return {
-    tcm: resolvedTcm,
-    wm: resolvedWm,
-  }
-}
-
 export function cleanDepartmentName(text: string): string {
   return String(text || '')
     .replace(/[./．、]门诊病人$/u, '')
@@ -505,7 +324,6 @@ export function isTcmDiagPattern(text: string): boolean {
   if (!text) return false
   var tcmText = text.trim()
   if (tcmText.includes(':') || tcmText.includes('：')) return true
-  if (hasTcmDiseaseName(tcmText)) return true
   // “病”单独作为结尾不能判断为中医诊断；高血压病、冠心病等西医病名也常以“病”结尾。
   if (/(证|证型|证候)/.test(tcmText)) return true
   if (/(风寒|风热|湿热|寒湿|气虚|阴虚|阳虚|气阴两虚|痰湿|瘀血|肝郁|心火|肝火|脾虚|肾虚|血瘀|痹阻|肝热|肝阴)/.test(tcmText)) return true
@@ -611,13 +429,22 @@ export function inferPatientRow(
   var knownCategory = ALL_CATEGORIES.find((item) => categoryText === item || categoryText.includes(item)) || ''
   var explicitCategory: PatientCategory | '' = knownCategory || (categoryText && categoryText.trim().length >= 2 && !isPlaceholderText(categoryText) ? categoryText.trim() : '')
 
-  // 诊断列优先用明确表头；混写编号诊断拆出西医，中医用原文病名/证型，没有则按西医生成。
+  // 诊断列优先用明确表头；没有中/西医列时才用总诊断格，混写原文整段保留，不按西医生成证型。
   var tcmDiag = cleanDiagCode(rawTcmDiag)
   var wmDiag = cleanDiagCode(rawWmDiag)
-  var cleanedGeneralDiag = cleanDiagCode(rawGeneralDiag)
-  var resolvedDiags = resolveMixedDiagnoses(tcmDiag, wmDiag, cleanedGeneralDiag)
-  tcmDiag = resolvedDiags.tcm
-  wmDiag = resolvedDiags.wm
+  if (!tcmDiag && !wmDiag && rawGeneralDiag) {
+    var cleanedGeneralDiag = cleanDiagCode(rawGeneralDiag)
+    if (isTcmDiagPattern(cleanedGeneralDiag)) tcmDiag = cleanedGeneralDiag
+    else wmDiag = cleanedGeneralDiag
+  } else if (rawGeneralDiag) {
+    var cleanedGeneralDiag = cleanDiagCode(rawGeneralDiag)
+    if (!tcmDiag && isTcmDiagPattern(cleanedGeneralDiag)) tcmDiag = cleanedGeneralDiag
+    else if (!wmDiag && cleanedGeneralDiag !== tcmDiag) wmDiag = cleanedGeneralDiag
+  }
+  if (!tcmDiag && wmDiag && isTcmDiagPattern(wmDiag)) {
+    tcmDiag = wmDiag
+    wmDiag = ''
+  }
 
   // 日期只清洗当前列原文，不把入院/就诊/操作日期互相填过去。
   var visitDateClean = cleanDateText(visitDate)
